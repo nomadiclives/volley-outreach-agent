@@ -1,0 +1,118 @@
+{% extends "base.html" %}
+{% block title %}Leads{% endblock %}
+
+{% block body %}
+<div class="topbar">
+  <h1>Leads CRM</h1>
+  <div class="topbar-actions">
+    <a href="/leads/export" class="btn btn-outline btn-sm">Export CSV</a>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- Filters -->
+  <div class="card" style="margin-bottom:16px; padding:14px 20px;">
+    <form method="get" style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+      <input type="text" name="q" value="{{ filters.q }}" placeholder="Search email or company…" style="width:220px;">
+      <select name="status" style="width:160px;">
+        <option value="">All statuses</option>
+        {% for s in ['new','approved','rejected','contacted','replied','converted','unsubscribed'] %}
+        <option value="{{ s }}" {% if filters.status == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <select name="source" style="width:160px;">
+        <option value="">All sources</option>
+        {% for s in ['apollo','hunter','google_maps','linkedin'] %}
+        <option value="{{ s }}" {% if filters.source == s %}selected{% endif %}>{{ s }}</option>
+        {% endfor %}
+      </select>
+      <select name="campaign_id" style="width:180px;">
+        <option value="">All campaigns</option>
+        {% for c in campaigns %}
+        <option value="{{ c.id }}" {% if filters.campaign_id == c.id %}selected{% endif %}>{{ c.name }}</option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-outline btn-sm">Filter</button>
+      <a href="/leads" class="btn btn-outline btn-sm">Reset</a>
+    </form>
+  </div>
+
+  <!-- Bulk actions -->
+  <form method="post" action="/leads/bulk_action">
+  <div class="card">
+    <div class="section-header" style="margin-bottom:10px;">
+      <div style="display:flex; gap:8px; align-items:center;">
+        <select name="action" style="width:auto;">
+          <option value="approve">Approve selected</option>
+          <option value="reject">Reject selected</option>
+        </select>
+        <button type="submit" class="btn btn-outline btn-sm">Apply</button>
+        <span style="color:var(--muted); font-size:0.8rem;">{{ leads|length }} leads shown</span>
+      </div>
+      <div style="font-size:0.8rem; color:var(--muted);">Page {{ page }}</div>
+    </div>
+
+    {% if leads %}
+    <table>
+      <thead>
+        <tr>
+          <th style="width:32px;"><input type="checkbox" id="chk-all"></th>
+          <th>Company</th><th>Name</th><th>Title</th><th>Email</th>
+          <th>Source</th><th>Score</th><th>Status</th><th>Added</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for lead in leads %}
+        <tr>
+          <td><input type="checkbox" name="lead_ids" value="{{ lead.id }}"></td>
+          <td style="font-weight:500;">{{ lead.company_name or '—' }}</td>
+          <td>{{ lead.first_name }} {{ lead.last_name }}</td>
+          <td style="color:var(--muted); font-size:0.8rem;">{{ lead.title or '—' }}</td>
+          <td>{{ lead.email }}</td>
+          <td><span class="badge badge-gray" style="font-size:0.7rem;">{{ lead.source or '—' }}</span></td>
+          <td>
+            {% if lead.icp_score >= 70 %}<span class="score-high">{{ lead.icp_score }}</span>
+            {% elif lead.icp_score >= 40 %}<span class="score-mid">{{ lead.icp_score }}</span>
+            {% else %}<span class="score-low">{{ lead.icp_score }}</span>{% endif %}
+          </td>
+          <td>
+            {% if lead.status == 'replied' %}<span class="badge badge-green">replied</span>
+            {% elif lead.status == 'approved' %}<span class="badge badge-blue">approved</span>
+            {% elif lead.status == 'contacted' %}<span class="badge badge-yellow">contacted</span>
+            {% elif lead.status == 'rejected' %}<span class="badge badge-red">rejected</span>
+            {% elif lead.status == 'unsubscribed' %}<span class="badge badge-orange">unsubscribed</span>
+            {% else %}<span class="badge badge-gray">{{ lead.status }}</span>{% endif %}
+          </td>
+          <td style="color:var(--muted); font-size:0.75rem;">{{ lead.created_at[:10] if lead.created_at else '—' }}</td>
+          <td><a href="/leads/{{ lead.id }}" class="btn btn-outline btn-sm">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+
+    <!-- Pagination -->
+    <div style="display:flex; gap:8px; margin-top:14px; align-items:center; justify-content:flex-end;">
+      {% if page > 1 %}
+      <a href="/leads?page={{ page-1 }}&{{ filters.items()|list|join('&', attribute='join') }}" class="btn btn-outline btn-sm">← Prev</a>
+      {% endif %}
+      <span style="font-size:0.8rem; color:var(--muted);">Page {{ page }}</span>
+      {% if leads|length == per_page %}
+      <a href="/leads?page={{ page+1 }}&{{ filters.items()|list|join('&', attribute='join') }}" class="btn btn-outline btn-sm">Next →</a>
+      {% endif %}
+    </div>
+
+    {% else %}
+    <p style="color:var(--muted); padding:20px 0;">No leads found matching these filters.</p>
+    {% endif %}
+  </div>
+  </form>
+
+</div>
+
+<script>
+document.getElementById('chk-all').addEventListener('change', function() {
+  document.querySelectorAll('input[name="lead_ids"]').forEach(cb => cb.checked = this.checked);
+});
+</script>
+{% endblock %}

@@ -1,0 +1,148 @@
+{% extends "base.html" %}
+{% block title %}Analytics{% endblock %}
+
+{% block body %}
+<div class="topbar">
+  <h1>Analytics</h1>
+</div>
+
+<div class="content">
+
+  <!-- Top-line metrics -->
+  <div class="grid grid-4" style="margin-bottom:20px;">
+    <div class="card">
+      <div class="card-title">Total sent</div>
+      <div class="card-value">{{ total_sent }}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Total opened</div>
+      <div class="card-value">{{ total_opened }}</div>
+      <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">{{ overall_open_rate }}% open rate</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Human replies</div>
+      <div class="card-value {% if overall_reply_rate >= 5 %}score-high{% elif overall_reply_rate >= 2 %}score-mid{% else %}score-low{% endif %}">{{ total_replied }}</div>
+      <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">{{ overall_reply_rate }}% reply rate</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Claude API spend</div>
+      <div class="card-value" style="font-size:1.5rem;">${{ "%.2f"|format(monthly_cost) }}</div>
+      <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">this month</div>
+    </div>
+  </div>
+
+  <!-- Send volume chart -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="section-title" style="margin-bottom:16px;">Daily Send Volume (30 days)</div>
+    <canvas id="sendChart" height="80"></canvas>
+  </div>
+
+  <div class="grid grid-2" style="margin-bottom:20px;">
+
+    <!-- Per-campaign stats -->
+    <div class="card">
+      <div class="section-title" style="margin-bottom:12px;">Campaign Performance</div>
+      {% if campaigns %}
+      <table>
+        <thead>
+          <tr><th>Campaign</th><th>Sent</th><th>Open%</th><th>Reply%</th></tr>
+        </thead>
+        <tbody>
+          {% for c in campaigns %}
+          {% set s = all_stats.get(c.id, {}) %}
+          {% if s.sent > 0 %}
+          <tr>
+            <td><a href="/campaigns/{{ c.id }}" style="color:var(--accent); text-decoration:none;">{{ c.name }}</a></td>
+            <td>{{ s.sent }}</td>
+            <td class="{% if s.open_rate >= 25 %}score-high{% elif s.open_rate >= 15 %}score-mid{% else %}score-low{% endif %}">{{ s.open_rate }}%</td>
+            <td class="{% if s.reply_rate >= 5 %}score-high{% elif s.reply_rate >= 2 %}score-mid{% else %}score-low{% endif %}">{{ s.reply_rate }}%</td>
+          </tr>
+          {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="color:var(--muted); font-size:0.875rem;">No campaign data yet.</p>
+      {% endif %}
+    </div>
+
+    <!-- Claude API cost breakdown -->
+    <div class="card">
+      <div class="section-title" style="margin-bottom:12px;">Claude API Cost Breakdown</div>
+      {% if cost_by_purpose %}
+      <table>
+        <thead>
+          <tr><th>Purpose</th><th>Calls</th><th>Cost</th></tr>
+        </thead>
+        <tbody>
+          {% for row in cost_by_purpose %}
+          <tr>
+            <td><span class="badge badge-gray">{{ row.purpose }}</span></td>
+            <td>{{ row.calls }}</td>
+            <td>${{ "%.4f"|format(row.total_cost) }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+      {% else %}
+      <p style="color:var(--muted); font-size:0.875rem;">No API calls recorded yet.</p>
+      {% endif %}
+    </div>
+
+  </div>
+
+  <!-- Deliverability health -->
+  <div class="card">
+    <div class="section-title" style="margin-bottom:12px;">Deliverability Health</div>
+    <div class="grid grid-3">
+      <div>
+        <div class="card-title">Open rate</div>
+        <div style="font-size:1.5rem; font-weight:700;" class="{% if overall_open_rate >= 25 %}score-high{% elif overall_open_rate >= 15 %}score-mid{% else %}score-low{% endif %}">
+          {{ overall_open_rate }}%
+        </div>
+        <div style="font-size:0.75rem; color:var(--muted);">Target: &gt;25% · Warning: &lt;15%</div>
+      </div>
+      <div>
+        <div class="card-title">Reply rate</div>
+        <div style="font-size:1.5rem; font-weight:700;" class="{% if overall_reply_rate >= 5 %}score-high{% elif overall_reply_rate >= 2 %}score-mid{% else %}score-low{% endif %}">
+          {{ overall_reply_rate }}%
+        </div>
+        <div style="font-size:0.75rem; color:var(--muted);">Target: &gt;5% · Warning: &lt;2%</div>
+      </div>
+      <div>
+        <div class="card-title">Monthly Claude cost</div>
+        <div style="font-size:1.5rem; font-weight:700;">${{ "%.2f"|format(monthly_cost) }}</div>
+        <div style="font-size:0.75rem; color:var(--muted);">Soft cap: $4.00/month</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.umd.min.js"></script>
+<script>
+const ctx = document.getElementById('sendChart');
+new Chart(ctx, {
+  type: 'bar',
+  data: {
+    labels: {{ chart_labels|safe }},
+    datasets: [{
+      label: 'Emails sent',
+      data: {{ chart_data|safe }},
+      backgroundColor: '#4f8ef7',
+      borderRadius: 4,
+    }]
+  },
+  options: {
+    responsive: true,
+    plugins: { legend: { display: false } },
+    scales: {
+      y: { beginAtZero: true, ticks: { precision: 0 } },
+      x: { grid: { display: false } }
+    }
+  }
+});
+</script>
+{% endblock %}

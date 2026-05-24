@@ -1,0 +1,95 @@
+{% extends "base.html" %}
+{% block title %}{{ lead.first_name }} {{ lead.last_name }}{% endblock %}
+
+{% block body %}
+<div class="topbar">
+  <a href="/leads" style="color:var(--muted); text-decoration:none; font-size:0.875rem;">← Leads</a>
+  <h1 style="margin-left:12px;">{{ lead.first_name }} {{ lead.last_name }}</h1>
+  <span style="margin-left:8px; color:var(--muted); font-size:0.875rem;">{{ lead.company_name }}</span>
+</div>
+
+<div class="content">
+  <div class="grid grid-2" style="margin-bottom:20px;">
+    <div class="card">
+      <div class="section-title" style="margin-bottom:12px;">Contact Info</div>
+      <table style="width:100%;">
+        <tr><td style="color:var(--muted); width:120px;">Name</td><td>{{ lead.first_name }} {{ lead.last_name }}</td></tr>
+        <tr><td style="color:var(--muted);">Title</td><td>{{ lead.title or '—' }}</td></tr>
+        <tr><td style="color:var(--muted);">Email</td><td>{{ lead.email }}</td></tr>
+        <tr><td style="color:var(--muted);">Company</td><td>{{ lead.company_name or '—' }}</td></tr>
+        <tr><td style="color:var(--muted);">Domain</td><td>{{ lead.domain or '—' }}</td></tr>
+        <tr><td style="color:var(--muted);">Industry</td><td>{{ lead.industry or '—' }}</td></tr>
+        <tr><td style="color:var(--muted);">Employees</td><td>{{ lead.employee_count or '—' }}</td></tr>
+        <tr><td style="color:var(--muted);">Location</td><td>{{ lead.city or '' }}{% if lead.city and lead.country %}, {% endif %}{{ lead.country or '' }}</td></tr>
+        {% if lead.linkedin_url %}
+        <tr><td style="color:var(--muted);">LinkedIn</td><td><a href="{{ lead.linkedin_url }}" target="_blank">Profile →</a></td></tr>
+        {% endif %}
+      </table>
+    </div>
+
+    <div class="card">
+      <div class="section-title" style="margin-bottom:12px;">Lead Quality</div>
+      <div style="margin-bottom:12px;">
+        <div class="card-title">ICP Score</div>
+        <div class="card-value {% if lead.icp_score >= 70 %}score-high{% elif lead.icp_score >= 40 %}score-mid{% else %}score-low{% endif %}">
+          {{ lead.icp_score }}/100
+        </div>
+      </div>
+      <table>
+        <tr><td style="color:var(--muted); width:120px;">Source</td><td><span class="badge badge-gray">{{ lead.source or '—' }}</span></td></tr>
+        <tr><td style="color:var(--muted);">Email verified</td><td>{% if lead.email_verified %}<span class="badge badge-green">Yes</span>{% else %}<span class="badge badge-gray">No</span>{% endif %}</td></tr>
+        <tr><td style="color:var(--muted);">Status</td><td>
+          {% if lead.status == 'replied' %}<span class="badge badge-green">replied</span>
+          {% elif lead.status == 'approved' %}<span class="badge badge-blue">approved</span>
+          {% elif lead.status == 'contacted' %}<span class="badge badge-yellow">contacted</span>
+          {% elif lead.status == 'rejected' %}<span class="badge badge-red">rejected</span>
+          {% elif lead.status == 'unsubscribed' %}<span class="badge badge-orange">unsubscribed</span>
+          {% else %}<span class="badge badge-gray">{{ lead.status }}</span>{% endif %}
+        </td></tr>
+        <tr><td style="color:var(--muted);">Added</td><td style="font-size:0.8rem;">{{ lead.created_at[:16] if lead.created_at else '—' }}</td></tr>
+      </table>
+      {% if lead.notes %}
+      <div style="margin-top:12px; padding:10px; background:var(--bg); border-radius:4px; font-size:0.8rem; color:var(--muted);">{{ lead.notes }}</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Outreach history -->
+  <div class="card">
+    <div class="section-title" style="margin-bottom:12px;">Outreach History</div>
+    {% if history %}
+    <table>
+      <thead>
+        <tr><th>Step</th><th>Status</th><th>Scheduled</th><th>Sent</th><th>Opened</th><th>Replied</th><th>Classification</th></tr>
+      </thead>
+      <tbody>
+        {% for h in history %}
+        <tr>
+          <td>Step {{ h.step_number }}</td>
+          <td>
+            {% if h.status == 'sent' %}<span class="badge badge-blue">sent</span>
+            {% elif h.status == 'opened' %}<span class="badge badge-green">opened</span>
+            {% elif h.status == 'replied' %}<span class="badge badge-green">replied</span>
+            {% elif h.status == 'cancelled' %}<span class="badge badge-orange">cancelled</span>
+            {% elif h.status == 'failed' %}<span class="badge badge-red">failed</span>
+            {% else %}<span class="badge badge-gray">{{ h.status }}</span>{% endif %}
+          </td>
+          <td style="font-size:0.8rem; color:var(--muted);">{{ h.scheduled_at[:16] if h.scheduled_at else '—' }}</td>
+          <td style="font-size:0.8rem; color:var(--muted);">{{ h.sent_at[:16] if h.sent_at else '—' }}</td>
+          <td style="font-size:0.8rem; color:var(--muted);">{{ h.opened_at[:16] if h.opened_at else '—' }}</td>
+          <td style="font-size:0.8rem; color:var(--muted);">{{ h.replied_at[:16] if h.replied_at else '—' }}</td>
+          <td style="font-size:0.8rem;">
+            {% if h.reply_classification %}
+            <span class="badge {% if h.reply_is_human %}badge-green{% else %}badge-gray{% endif %}">{{ h.reply_classification }}</span>
+            {% else %}—{% endif %}
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted); font-size:0.875rem;">No outreach sent yet for this lead.</p>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

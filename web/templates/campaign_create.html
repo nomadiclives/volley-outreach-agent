@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}New Campaign{% endblock %}
+
+{% block body %}
+<div class="topbar">
+  <a href="/campaigns" style="color:var(--muted); text-decoration:none; font-size:0.875rem;">← Campaigns</a>
+  <h1 style="margin-left:12px;">New Campaign</h1>
+</div>
+
+<div class="content">
+  <div class="card" style="max-width:700px;">
+    <p style="color:var(--muted); font-size:0.875rem; margin-bottom:20px;">
+      Describe your ideal customer and Volley will generate a full strategy and 4-email sequence automatically.
+    </p>
+    <form method="post">
+      <div class="form-group">
+        <label for="name">Campaign name</label>
+        <input type="text" id="name" name="name" placeholder="e.g. DACH SaaS HR Tools Q3" required>
+      </div>
+      <div class="form-group">
+        <label for="vertical">Vertical (optional)</label>
+        <input type="text" id="vertical" name="vertical" placeholder="e.g. HR SaaS, E-commerce, Real Estate">
+      </div>
+      <div class="form-group">
+        <label for="geo">Geography (optional)</label>
+        <input type="text" id="geo" name="geo" placeholder="e.g. Germany, DACH, US West Coast">
+      </div>
+      <div class="form-group">
+        <label for="icp_description">ICP Description</label>
+        <textarea id="icp_description" name="icp_description" rows="8" required
+          placeholder="Describe your ideal lead buyer. Include:
+- What industry or vertical they're in
+- Company size (employees)
+- Target geography
+- Job titles you want to reach
+- Why would they buy leads from a pay-per-lead agency?
+- What pain does guaranteed lead flow solve for them?
+
+Example: We target Head of Sales and VP Sales at B2B SaaS companies with 50-500 employees in the DACH region. They struggle with consistent pipeline and are open to pay-per-lead models where they only pay for delivered, qualified leads."></textarea>
+      </div>
+      <div style="display:flex; gap:12px; align-items:center;">
+        <button type="submit" class="btn btn-primary">Generate Strategy &amp; Sequence</button>
+        <span style="font-size:0.8rem; color:var(--muted);">Takes ~30 seconds. Uses Claude AI.</span>
+      </div>
+    </form>
+  </div>
+</div>
+{% endblock %}

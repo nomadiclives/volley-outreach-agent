@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block title %}Sequences{% endblock %}
+
+{% block body %}
+<div class="topbar">
+  <h1>Email Sequences</h1>
+</div>
+
+<div class="content">
+
+  <!-- Campaign selector -->
+  <div class="card" style="margin-bottom:16px; padding:14px 20px;">
+    <form method="get" style="display:flex; gap:12px; align-items:center;">
+      <label style="white-space:nowrap; margin:0;">Select campaign:</label>
+      <select name="campaign_id" style="width:280px;">
+        <option value="">— Choose a campaign —</option>
+        {% for c in campaigns %}
+        <option value="{{ c.id }}" {% if selected_campaign and selected_campaign.id == c.id %}selected{% endif %}>
+          {{ c.name }} ({{ c.status }})
+        </option>
+        {% endfor %}
+      </select>
+      <button type="submit" class="btn btn-outline btn-sm">Load</button>
+    </form>
+  </div>
+
+  {% if warnings %}
+  <div class="alert alert-warning">
+    <strong>Validation warnings:</strong><br>
+    {% for w in warnings %}<div>{{ w }}</div>{% endfor %}
+  </div>
+  {% endif %}
+
+  {% if selected_campaign %}
+  <div style="display:flex; gap:12px; margin-bottom:16px;">
+    <form method="post" action="/sequences/validate">
+      <input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">
+      <button class="btn btn-outline" type="submit">Validate All</button>
+    </form>
+    <span style="font-size:0.8rem; color:var(--muted); align-self:center;">
+      Campaign status: <strong>{{ selected_campaign.status }}</strong>
+      {% if selected_campaign.status not in ['draft', 'paused'] %} — editing disabled (pause campaign to edit){% endif %}
+    </span>
+  </div>
+
+  {% if sequences %}
+  {% for step in sequences %}
+  <div class="card" style="margin-bottom:16px;">
+    <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+      <span class="badge badge-blue">Step {{ step.step_number }}</span>
+      <span style="color:var(--muted); font-size:0.875rem;">Day {{ step.delay_days }}</span>
+    </div>
+
+    <form method="post" action="/sequences/{{ step.id }}/edit">
+      <input type="hidden" name="campaign_id" value="{{ selected_campaign.id }}">
+      <div class="form-group">
+        <label>Subject line</label>
+        <input type="text" name="subject" value="{{ step.subject }}"
+          {% if selected_campaign.status not in ['draft', 'paused'] %}readonly{% endif %}>
+      </div>
+      <div class="form-group">
+        <label>Body <span style="color:var(--muted); font-size:0.8rem;">(use {first_name} and {company_name} tokens)</span></label>
+        <textarea name="body_text" rows="10"
+          {% if selected_campaign.status not in ['draft', 'paused'] %}readonly{% endif %}>{{ step.body_text }}</textarea>
+      </div>
+      {% if selected_campaign.status in ['draft', 'paused'] %}
+      <button type="submit" class="btn btn-primary btn-sm">Save Step {{ step.step_number }}</button>
+      {% endif %}
+    </form>
+  </div>
+  {% endfor %}
+  {% else %}
+  <div class="card">
+    <p style="color:var(--muted);">No sequence steps for this campaign yet.</p>
+  </div>
+  {% endif %}
+
+  {% elif campaigns %}
+  <div class="card" style="text-align:center; padding:40px; color:var(--muted);">
+    Select a campaign above to view and edit its email sequence.
+  </div>
+  {% else %}
+  <div class="card" style="text-align:center; padding:40px; color:var(--muted);">
+    No campaigns yet. <a href="/campaigns/create">Create a campaign first.</a>
+  </div>
+  {% endif %}
+
+</div>
+{% endblock %}

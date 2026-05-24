@@ -1,0 +1,134 @@
+{% extends "base.html" %}
+{% block title %}Dashboard{% endblock %}
+
+{% block body %}
+<div class="topbar">
+  <h1>Dashboard</h1>
+  <div class="topbar-actions">
+    <a href="/campaigns/create" class="btn btn-primary">+ New Campaign</a>
+    <a href="/leads/export" class="btn btn-outline btn-sm">Export CSV</a>
+  </div>
+</div>
+
+<div class="content">
+
+  {% if human_replies %}
+  <div class="alert alert-error" style="display:flex; align-items:center; gap:12px;">
+    <strong>⚡ {{ human_replies|length }} human repl{{ 'y' if human_replies|length == 1 else 'ies' }} detected</strong>
+    — sequences cancelled automatically. <a href="/leads?status=replied">View replies →</a>
+  </div>
+  {% endif %}
+
+  {% if pending_count %}
+  <div class="alert alert-warning">
+    <strong>{{ pending_count }} campaign{{ 's' if pending_count > 1 else '' }} awaiting approval.</strong>
+    <a href="/campaigns?status=pending_approval">Review now →</a>
+  </div>
+  {% endif %}
+
+  <!-- KPI row -->
+  <div class="grid grid-4" style="margin-bottom: 20px;">
+    <div class="card">
+      <div class="card-title">Sent today</div>
+      <div class="card-value">{{ sent_today }}</div>
+      <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">{{ remaining }} remaining / {{ daily_limit }} limit</div>
+      <div class="progress" style="margin-top:10px;">
+        <div class="progress-bar" style="width:{{ ((sent_today / daily_limit) * 100)|round|int if daily_limit else 0 }}%"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title">Active campaigns</div>
+      <div class="card-value">{{ active_count }}</div>
+      <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">{{ pending_count }} pending approval</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Total leads</div>
+      <div class="card-value">{{ total_leads }}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Warmup status</div>
+      {% if warmup_active %}
+      <div class="card-value" style="font-size:1.2rem; color:var(--yellow);">Day {{ warmup_day }}</div>
+      <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">
+        {% if warmup_day < 7 %}Week 1 — warmup only{% elif warmup_day < 14 %}Week 2 — warmup only{% elif warmup_day < 21 %}Week 3 — first real sends{% else %}Week 4+{% endif %}
+      </div>
+      {% else %}
+      <div class="card-value" style="font-size:1.2rem; color:var(--green);">Active</div>
+      <div style="font-size:0.8rem; color:var(--muted); margin-top:4px;">Warmup complete</div>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- Status breakdown + Campaigns -->
+  <div class="grid grid-2" style="margin-bottom: 20px;">
+    <div class="card">
+      <div class="section-header">
+        <div class="section-title">Campaign Status</div>
+      </div>
+      {% for status, count in status_counts.items() %}
+      <div style="display:flex; justify-content:space-between; padding:8px 0; border-bottom:1px solid var(--border); font-size:0.875rem;">
+        <span>
+          {% if status == 'active' %}<span class="badge badge-green">active</span>
+          {% elif status == 'pending_approval' %}<span class="badge badge-yellow">pending approval</span>
+          {% elif status == 'paused' %}<span class="badge badge-orange">paused</span>
+          {% elif status == 'completed' %}<span class="badge badge-blue">completed</span>
+          {% else %}<span class="badge badge-gray">{{ status }}</span>{% endif %}
+        </span>
+        <strong>{{ count }}</strong>
+      </div>
+      {% else %}
+      <p style="color:var(--muted); font-size:0.875rem;">No campaigns yet. <a href="/campaigns/create">Create one →</a></p>
+      {% endfor %}
+    </div>
+
+    <div class="card">
+      <div class="section-header">
+        <div class="section-title">Notifications</div>
+      </div>
+      {% for n in notifications[:5] %}
+      <div style="padding:8px 0; border-bottom:1px solid var(--border); font-size:0.875rem;">
+        <span class="badge {% if n.type == 'human_reply' %}badge-red{% elif n.type == 'send_failure' %}badge-orange{% else %}badge-blue{% endif %}" style="margin-right:8px;">{{ n.type }}</span>
+        {{ n.message[:80] }}{% if n.message|length > 80 %}…{% endif %}
+      </div>
+      {% else %}
+      <p style="color:var(--muted); font-size:0.875rem;">No new notifications.</p>
+      {% endfor %}
+    </div>
+  </div>
+
+  <!-- Recent campaigns -->
+  <div class="card">
+    <div class="section-header">
+      <div class="section-title">Campaigns</div>
+      <a href="/campaigns" class="btn btn-outline btn-sm">View all</a>
+    </div>
+    {% if campaigns %}
+    <table>
+      <thead>
+        <tr><th>Name</th><th>Vertical</th><th>Status</th><th>Created</th><th></th></tr>
+      </thead>
+      <tbody>
+        {% for c in campaigns[:8] %}
+        <tr>
+          <td><a href="/campaigns/{{ c.id }}" style="color:var(--accent); text-decoration:none;">{{ c.name }}</a></td>
+          <td>{{ c.vertical or '—' }}</td>
+          <td>
+            {% if c.status == 'active' %}<span class="badge badge-green">active</span>
+            {% elif c.status == 'pending_approval' %}<span class="badge badge-yellow">pending</span>
+            {% elif c.status == 'paused' %}<span class="badge badge-orange">paused</span>
+            {% elif c.status == 'completed' %}<span class="badge badge-blue">done</span>
+            {% else %}<span class="badge badge-gray">{{ c.status }}</span>{% endif %}
+          </td>
+          <td style="color:var(--muted); font-size:0.8rem;">{{ c.created_at[:10] if c.created_at else '—' }}</td>
+          <td><a href="/campaigns/{{ c.id }}" class="btn btn-outline btn-sm">View</a></td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% else %}
+    <p style="color:var(--muted);">No campaigns yet. <a href="/campaigns/create">Create your first campaign →</a></p>
+    {% endif %}
+  </div>
+
+</div>
+{% endblock %}

@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+{% block title %}Campaigns{% endblock %}
+
+{% block body %}
+<div class="topbar">
+  <h1>Campaigns</h1>
+  <div class="topbar-actions">
+    <a href="/campaigns/create" class="btn btn-primary">+ New Campaign</a>
+  </div>
+</div>
+
+<div class="content">
+  {% if campaigns %}
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>Name</th><th>Vertical</th><th>Status</th>
+          <th>Leads</th><th>Sent</th><th>Open%</th><th>Reply%</th>
+          <th>Created</th><th>Actions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in campaigns %}
+        {% set s = stats.get(c.id, {}) %}
+        <tr>
+          <td><a href="/campaigns/{{ c.id }}" style="color:var(--accent); text-decoration:none; font-weight:500;">{{ c.name }}</a></td>
+          <td>{{ c.vertical or '—' }}</td>
+          <td>
+            {% if c.status == 'active' %}<span class="badge badge-green">active</span>
+            {% elif c.status == 'pending_approval' %}<span class="badge badge-yellow">pending approval</span>
+            {% elif c.status == 'paused' %}<span class="badge badge-orange">paused</span>
+            {% elif c.status == 'completed' %}<span class="badge badge-blue">completed</span>
+            {% elif c.status == 'draft' %}<span class="badge badge-gray">draft</span>
+            {% else %}<span class="badge badge-gray">{{ c.status }}</span>{% endif %}
+          </td>
+          <td>{{ s.get('total_leads', 0) }}</td>
+          <td>{{ s.get('sent', 0) }}</td>
+          <td>{{ s.get('open_rate', 0) }}%</td>
+          <td>{{ s.get('reply_rate', 0) }}%</td>
+          <td style="color:var(--muted); font-size:0.8rem;">{{ c.created_at[:10] if c.created_at else '—' }}</td>
+          <td>
+            <div style="display:flex; gap:4px;">
+              <a href="/campaigns/{{ c.id }}" class="btn btn-outline btn-sm">View</a>
+              {% if c.status == 'active' %}
+              <form method="post" action="/campaigns/{{ c.id }}/pause" style="display:inline;">
+                <button class="btn btn-outline btn-sm" type="submit">Pause</button>
+              </form>
+              {% elif c.status == 'paused' %}
+              <form method="post" action="/campaigns/{{ c.id }}/resume" style="display:inline;">
+                <button class="btn btn-success btn-sm" type="submit">Resume</button>
+              </form>
+              {% elif c.status == 'pending_approval' %}
+              <a href="/campaigns/{{ c.id }}" class="btn btn-primary btn-sm">Review</a>
+              {% endif %}
+            </div>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+  <div class="card" style="text-align:center; padding:48px;">
+    <p style="color:var(--muted); margin-bottom:16px;">No campaigns yet.</p>
+    <a href="/campaigns/create" class="btn btn-primary">Create your first campaign</a>
+  </div>
+  {% endif %}
+</div>
+{% endblock %}

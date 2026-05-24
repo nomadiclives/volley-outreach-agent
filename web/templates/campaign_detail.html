@@ -1,0 +1,135 @@
+{% extends "base.html" %}
+{% block title %}{{ campaign.name }}{% endblock %}
+
+{% block body %}
+<div class="topbar">
+  <a href="/campaigns" style="color:var(--muted); text-decoration:none; font-size:0.875rem;">← Campaigns</a>
+  <h1 style="margin-left:12px;">{{ campaign.name }}</h1>
+  <span style="margin-left:12px;">
+    {% if campaign.status == 'active' %}<span class="badge badge-green">active</span>
+    {% elif campaign.status == 'pending_approval' %}<span class="badge badge-yellow">pending approval</span>
+    {% elif campaign.status == 'paused' %}<span class="badge badge-orange">paused</span>
+    {% elif campaign.status == 'draft' %}<span class="badge badge-gray">draft</span>
+    {% else %}<span class="badge badge-gray">{{ campaign.status }}</span>{% endif %}
+  </span>
+  <div class="topbar-actions">
+    {% if campaign.status == 'active' %}
+    <form method="post" action="/campaigns/{{ campaign.id }}/pause">
+      <button class="btn btn-outline btn-sm" type="submit">Pause</button>
+    </form>
+    {% elif campaign.status == 'paused' %}
+    <form method="post" action="/campaigns/{{ campaign.id }}/resume">
+      <button class="btn btn-success btn-sm" type="submit">Resume</button>
+    </form>
+    {% endif %}
+    <a href="/leads/export?campaign_id={{ campaign.id }}" class="btn btn-outline btn-sm">Export CSV</a>
+  </div>
+</div>
+
+<div class="content">
+
+  <!-- Stats row -->
+  <div class="grid grid-4" style="margin-bottom:20px;">
+    <div class="card">
+      <div class="card-title">Total leads</div>
+      <div class="card-value">{{ stats.total_leads }}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Sent</div>
+      <div class="card-value">{{ stats.sent }}</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Open rate</div>
+      <div class="card-value {% if stats.open_rate >= 25 %}score-high{% elif stats.open_rate >= 15 %}score-mid{% else %}score-low{% endif %}">{{ stats.open_rate }}%</div>
+    </div>
+    <div class="card">
+      <div class="card-title">Reply rate</div>
+      <div class="card-value {% if stats.reply_rate >= 5 %}score-high{% elif stats.reply_rate >= 2 %}score-mid{% else %}score-low{% endif %}">{{ stats.reply_rate }}%</div>
+    </div>
+  </div>
+
+  <!-- Approval panel (shown only for pending_approval) -->
+  {% if campaign.status == 'pending_approval' %}
+  <div class="card" style="border:2px solid var(--yellow); margin-bottom:20px;">
+    <div class="section-header">
+      <div class="section-title">⚡ Approval Required</div>
+    </div>
+    <p style="color:var(--muted); font-size:0.875rem; margin-bottom:16px;">Review the strategy and email sequence below, then approve or reject.</p>
+    <div style="display:flex; gap:12px;">
+      <form method="post" action="/campaigns/{{ campaign.id }}/test">
+        <button class="btn btn-outline" type="submit">Send test to myself</button>
+      </form>
+      <form method="post" action="/campaigns/{{ campaign.id }}/approve">
+        <button class="btn btn-success" type="submit">✓ Approve Campaign</button>
+      </form>
+      <form method="post" action="/campaigns/{{ campaign.id }}/reject">
+        <button class="btn btn-danger" type="submit">✕ Reject &amp; Regenerate</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+
+  <div class="grid grid-2" style="margin-bottom:20px;">
+
+    <!-- Strategy panel -->
+    {% if strategy %}
+    <div class="card">
+      <div class="section-title" style="margin-bottom:12px;">Outreach Strategy</div>
+      <div style="font-size:0.875rem;">
+        <div style="margin-bottom:10px;"><strong>Value prop:</strong> {{ strategy.get('value_prop', '—') }}</div>
+        <div style="margin-bottom:10px;"><strong>Hook:</strong> {{ strategy.get('hook', '—') }}</div>
+        <div style="margin-bottom:10px;"><strong>Primary signal:</strong> {{ strategy.get('primary_signal', '—') }}</div>
+        <div style="margin-bottom:10px;"><strong>Rationale:</strong> {{ strategy.get('sequence_rationale', '—') }}</div>
+        {% if strategy.get('risk_factors') %}
+        <div style="margin-bottom:6px;"><strong>Risk factors:</strong></div>
+        <ul style="padding-left:16px; color:var(--muted);">
+          {% for r in strategy.risk_factors %}<li>{{ r }}</li>{% endfor %}
+        </ul>
+        {% endif %}
+        {% if strategy.get('success_metrics') %}
+        <div style="margin-top:10px;"><strong>Targets:</strong>
+          Open {{ strategy.success_metrics.get('target_open_rate', '?') }} /
+          Reply {{ strategy.success_metrics.get('target_reply_rate', '?') }}
+        </div>
+        {% endif %}
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- ICP info -->
+    <div class="card">
+      <div class="section-title" style="margin-bottom:12px;">ICP Description</div>
+      <p style="font-size:0.875rem; color:var(--muted); white-space:pre-wrap;">{{ campaign.icp_description or '—' }}</p>
+      <div style="margin-top:12px; font-size:0.8rem; color:var(--muted);">
+        <strong>Vertical:</strong> {{ campaign.vertical or '—' }} &nbsp;|&nbsp;
+        <strong>Geo:</strong> {{ campaign.geo or '—' }}
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Email sequence -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="section-header">
+      <div class="section-title">Email Sequence</div>
+      <a href="/sequences?campaign_id={{ campaign.id }}" class="btn btn-outline btn-sm">Edit Sequence</a>
+    </div>
+    {% for step in sequences %}
+    <details style="margin-bottom:12px; border:1px solid var(--border); border-radius:6px; padding:12px;">
+      <summary style="cursor:pointer; font-weight:600; font-size:0.875rem; display:flex; align-items:center; gap:8px;">
+        <span class="badge badge-blue">Step {{ step.step_number }}</span>
+        Day {{ step.delay_days }}
+        <span style="color:var(--muted); font-weight:400;"> — {{ step.subject }}</span>
+      </summary>
+      <div style="margin-top:12px;">
+        <div style="font-size:0.8rem; color:var(--muted); margin-bottom:6px;"><strong>Subject:</strong> {{ step.subject }}</div>
+        <pre style="font-family:inherit; font-size:0.875rem; white-space:pre-wrap; background:var(--bg); padding:12px; border-radius:4px; color:var(--text);">{{ step.body_text }}</pre>
+      </div>
+    </details>
+    {% else %}
+    <p style="color:var(--muted); font-size:0.875rem;">No sequence steps generated yet.</p>
+    {% endfor %}
+  </div>
+
+</div>
+{% endblock %}
