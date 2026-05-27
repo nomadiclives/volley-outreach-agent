@@ -2,47 +2,683 @@
 {% block title %}New Campaign{% endblock %}
 
 {% block body %}
+<style>
+  /* Wizard step indicator */
+  .wiz-track { display: flex; align-items: center; max-width: 760px; margin-bottom: 28px; }
+  .wiz-node  { display: flex; align-items: center; gap: 6px; }
+  .wiz-node:not(:last-child) { flex: 1; }
+  .wiz-circle {
+    width: 28px; height: 28px; border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 0.72rem; font-weight: 700; flex-shrink: 0;
+    background: var(--border); color: var(--muted);
+    transition: background 0.2s, color 0.2s;
+  }
+  .wiz-circle.active { background: var(--accent); color: #fff; }
+  .wiz-circle.done   { background: var(--green);  color: #fff; }
+  .wiz-lbl { font-size: 0.72rem; color: var(--muted); white-space: nowrap; }
+  .wiz-lbl.active { color: var(--text); font-weight: 600; }
+  .wiz-line { flex: 1; height: 2px; background: var(--border); margin: 0 6px; min-width: 12px; transition: background 0.2s; }
+  .wiz-line.done { background: var(--green); }
+
+  /* Chip checkboxes */
+  .chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip-wrap { position: relative; }
+  .chip-wrap input[type=checkbox] { position: absolute; opacity: 0; pointer-events: none; }
+  .chip {
+    display: inline-flex; align-items: center; padding: 5px 13px;
+    border: 1.5px solid var(--border); border-radius: 999px;
+    font-size: 0.8rem; cursor: pointer; user-select: none;
+    transition: border-color 0.12s, background 0.12s, color 0.12s;
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip-wrap input:checked + .chip { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  /* Signal cards */
+  .signal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .signal-card-wrap { position: relative; }
+  .signal-card-wrap input { position: absolute; opacity: 0; pointer-events: none; }
+  .signal-card {
+    padding: 12px 14px; border: 1.5px solid var(--border); border-radius: 8px;
+    cursor: pointer; user-select: none; transition: border-color 0.12s, background 0.12s;
+  }
+  .signal-card:hover { border-color: var(--accent); background: #f8faff; }
+  .signal-card-wrap input:checked + .signal-card { border-color: var(--accent); background: #eef4ff; }
+  .signal-card .sig-title { font-size: 0.85rem; font-weight: 600; display: flex; align-items: center; gap: 6px; }
+  .signal-card .sig-desc  { font-size: 0.78rem; color: var(--muted); margin-top: 3px; }
+
+  /* Toggle switch */
+  .toggle-wrap { display: flex; align-items: center; gap: 12px; cursor: pointer; }
+  .toggle-track {
+    width: 44px; height: 24px; border-radius: 999px; background: var(--border);
+    position: relative; transition: background 0.15s; flex-shrink: 0;
+  }
+  .toggle-thumb {
+    width: 18px; height: 18px; border-radius: 50%; background: #fff;
+    position: absolute; top: 3px; left: 3px; transition: left 0.15s;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+  }
+  .toggle-input { display: none; }
+  .toggle-input:checked ~ .toggle-track { background: var(--accent); }
+  .toggle-input:checked ~ .toggle-track .toggle-thumb { left: 23px; }
+  .toggle-lbl { font-size: 0.875rem; }
+
+  /* Excl checkboxes */
+  .excl-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+  .excl-item input[type=checkbox] { margin-top: 2px; width: 16px; height: 16px; flex-shrink: 0; }
+  .excl-item-body .excl-title { font-size: 0.875rem; font-weight: 600; }
+  .excl-item-body .excl-desc  { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+
+  /* Summary box */
+  .summary-box { background: #f8faff; border: 1px solid #d0e0ff; border-radius: 8px; padding: 16px; margin-bottom: 20px; }
+  .summary-box .sum-row { display: flex; gap: 10px; margin-bottom: 6px; font-size: 0.83rem; }
+  .summary-box .sum-lbl { font-weight: 600; color: var(--muted); min-width: 120px; }
+
+  /* Range display */
+  .range-row { display: flex; align-items: center; gap: 16px; }
+  .range-col { flex: 1; }
+  .range-val { font-weight: 700; color: var(--accent); font-size: 1rem; text-align: center; margin-bottom: 4px; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+
+  .step-title { font-size: 1.1rem; font-weight: 700; margin-bottom: 4px; }
+  .step-hint  { font-size: 0.83rem; color: var(--muted); margin-bottom: 20px; }
+  .wizard-step { display: none; }
+  .wizard-step.active { display: block; }
+</style>
+
 <div class="topbar">
   <a href="/campaigns" style="color:var(--muted); text-decoration:none; font-size:0.875rem;">← Campaigns</a>
-  <h1 style="margin-left:12px;">New Campaign</h1>
+  <h1 style="margin-left:12px;">New Campaign — ICP Wizard</h1>
 </div>
 
 <div class="content">
-  <div class="card" style="max-width:700px;">
-    <p style="color:var(--muted); font-size:0.875rem; margin-bottom:20px;">
-      Describe your ideal customer and Volley will generate a full strategy and 4-email sequence automatically.
-    </p>
-    <form method="post">
-      <div class="form-group">
-        <label for="name">Campaign name</label>
-        <input type="text" id="name" name="name" placeholder="e.g. DACH SaaS HR Tools Q3" required>
-      </div>
-      <div class="form-group">
-        <label for="vertical">Vertical (optional)</label>
-        <input type="text" id="vertical" name="vertical" placeholder="e.g. HR SaaS, E-commerce, Real Estate">
-      </div>
-      <div class="form-group">
-        <label for="geo">Geography (optional)</label>
-        <input type="text" id="geo" name="geo" placeholder="e.g. Germany, DACH, US West Coast">
-      </div>
-      <div class="form-group">
-        <label for="icp_description">ICP Description</label>
-        <textarea id="icp_description" name="icp_description" rows="8" required
-          placeholder="Describe your ideal lead buyer. Include:
-- What industry or vertical they're in
-- Company size (employees)
-- Target geography
-- Job titles you want to reach
-- Why would they buy leads from a pay-per-lead agency?
-- What pain does guaranteed lead flow solve for them?
 
-Example: We target Head of Sales and VP Sales at B2B SaaS companies with 50-500 employees in the DACH region. They struggle with consistent pipeline and are open to pay-per-lead models where they only pay for delivered, qualified leads."></textarea>
-      </div>
-      <div style="display:flex; gap:12px; align-items:center;">
-        <button type="submit" class="btn btn-primary">Generate Strategy &amp; Sequence</button>
-        <span style="font-size:0.8rem; color:var(--muted);">Takes ~30 seconds. Uses Claude AI.</span>
-      </div>
-    </form>
+  <!-- Step Indicator -->
+  <div class="wiz-track" id="wiz-track">
+    <div class="wiz-node">
+      <div class="wiz-circle active" id="sc-1">1</div>
+      <span class="wiz-lbl active" id="sl-1">Vertical</span>
+    </div>
+    <div class="wiz-line" id="wl-1"></div>
+    <div class="wiz-node">
+      <div class="wiz-circle" id="sc-2">2</div>
+      <span class="wiz-lbl" id="sl-2">Geography</span>
+    </div>
+    <div class="wiz-line" id="wl-2"></div>
+    <div class="wiz-node">
+      <div class="wiz-circle" id="sc-3">3</div>
+      <span class="wiz-lbl" id="sl-3">Company</span>
+    </div>
+    <div class="wiz-line" id="wl-3"></div>
+    <div class="wiz-node">
+      <div class="wiz-circle" id="sc-4">4</div>
+      <span class="wiz-lbl" id="sl-4">Signals</span>
+    </div>
+    <div class="wiz-line" id="wl-4"></div>
+    <div class="wiz-node">
+      <div class="wiz-circle" id="sc-5">5</div>
+      <span class="wiz-lbl" id="sl-5">Titles</span>
+    </div>
+    <div class="wiz-line" id="wl-5"></div>
+    <div class="wiz-node">
+      <div class="wiz-circle" id="sc-6">6</div>
+      <span class="wiz-lbl" id="sl-6">Exclusions</span>
+    </div>
   </div>
+
+  <form id="wizard-form" method="post" action="/campaigns/create">
+    <div class="card" style="max-width:760px; padding:28px;">
+
+      <!-- ── Step 1: Vertical ── -->
+      <div id="step-1" class="wizard-step active">
+        <div class="step-title">What vertical are you targeting?</div>
+        <div class="step-hint">Campaign name and the industry your lead buyers operate in.</div>
+
+        <div class="form-group">
+          <label for="name">Campaign name <span style="color:var(--red)">*</span></label>
+          <input type="text" id="name" name="name"
+            placeholder="e.g. DACH Solar Q3, UK Home Services Summer" required>
+        </div>
+
+        <div class="form-group">
+          <label for="vertical">Vertical <span style="color:var(--red)">*</span></label>
+          <select id="vertical" name="vertical" onchange="onVerticalChange(this)">
+            <option value="">— Select vertical —</option>
+            <optgroup label="High-LTV">
+              <option value="Solar">Solar / Renewable Energy</option>
+              <option value="Home Services">Home Services (HVAC, Plumbing, Roofing, etc.)</option>
+              <option value="Insurance">Insurance (Life, Home, Health)</option>
+              <option value="Legal / Law Firms">Legal / Law Firms</option>
+              <option value="Financial Services">Financial Services / Wealth Management</option>
+              <option value="Medical / Healthcare">Medical / Healthcare</option>
+              <option value="Real Estate">Real Estate</option>
+            </optgroup>
+            <optgroup label="Other verticals">
+              <option value="SaaS / Software">SaaS / Software</option>
+              <option value="E-commerce">E-commerce</option>
+              <option value="Education / EdTech">Education / EdTech</option>
+              <option value="Fitness / Wellness">Fitness / Wellness</option>
+              <option value="Automotive">Automotive</option>
+              <option value="Recruitment / Staffing">Recruitment / Staffing</option>
+              <option value="other">Other (specify below)</option>
+            </optgroup>
+          </select>
+        </div>
+
+        <div class="form-group" id="vertical_custom_wrap" style="display:none;">
+          <label for="vertical_custom">Custom vertical</label>
+          <input type="text" id="vertical_custom" name="vertical_custom"
+            placeholder="e.g. Pest Control, Funeral Services, Dental">
+        </div>
+      </div><!-- /step-1 -->
+
+
+      <!-- ── Step 2: Geography ── -->
+      <div id="step-2" class="wizard-step">
+        <div class="step-title">Where are your target buyers located?</div>
+        <div class="step-hint">Select all countries you want to prospect. You can optionally narrow to specific cities.</div>
+
+        <div class="form-group">
+          <label>Countries <span style="color:var(--red)">*</span></label>
+          <div class="chip-row" style="margin-bottom:12px;">
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Germany">
+              <span class="chip">🇩🇪 Germany</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Austria">
+              <span class="chip">🇦🇹 Austria</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Switzerland">
+              <span class="chip">🇨🇭 Switzerland</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="UK">
+              <span class="chip">🇬🇧 UK</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="USA">
+              <span class="chip">🇺🇸 USA</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Canada">
+              <span class="chip">🇨🇦 Canada</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Australia">
+              <span class="chip">🇦🇺 Australia</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="France">
+              <span class="chip">🇫🇷 France</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Netherlands">
+              <span class="chip">🇳🇱 Netherlands</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Belgium">
+              <span class="chip">🇧🇪 Belgium</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Spain">
+              <span class="chip">🇪🇸 Spain</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Italy">
+              <span class="chip">🇮🇹 Italy</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Poland">
+              <span class="chip">🇵🇱 Poland</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Sweden">
+              <span class="chip">🇸🇪 Sweden</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Denmark">
+              <span class="chip">🇩🇰 Denmark</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Norway">
+              <span class="chip">🇳🇴 Norway</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="Singapore">
+              <span class="chip">🇸🇬 Singapore</span>
+            </label>
+            <label class="chip-wrap">
+              <input type="checkbox" name="geo_countries" value="India">
+              <span class="chip">🇮🇳 India</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="geo_cities">Specific cities (optional)</label>
+          <input type="text" id="geo_cities" name="geo_cities"
+            placeholder="e.g. Berlin, Hamburg, Munich — leave blank for all cities">
+        </div>
+      </div><!-- /step-2 -->
+
+
+      <!-- ── Step 3: Company Profile ── -->
+      <div id="step-3" class="wizard-step">
+        <div class="step-title">What does the ideal company look like?</div>
+        <div class="step-hint">Set the employee range and whether you want single or multi-location businesses.</div>
+
+        <div class="form-group">
+          <label>Employee range</label>
+          <div class="range-row" style="margin-top:8px;">
+            <div class="range-col">
+              <div class="range-val" id="emp_min_val">10</div>
+              <input type="range" id="employees_min" name="employees_min"
+                min="1" max="500" value="10"
+                oninput="updateRange('min', this.value)">
+              <div style="text-align:center; font-size:0.72rem; color:var(--muted);">Min employees</div>
+            </div>
+            <div style="font-size:1.2rem; color:var(--muted); padding-bottom:20px;">–</div>
+            <div class="range-col">
+              <div class="range-val" id="emp_max_val">200</div>
+              <input type="range" id="employees_max" name="employees_max"
+                min="10" max="5000" value="200"
+                oninput="updateRange('max', this.value)">
+              <div style="text-align:center; font-size:0.72rem; color:var(--muted);">Max employees</div>
+            </div>
+          </div>
+          <div style="display:flex; gap:8px; margin-top:12px; flex-wrap:wrap;">
+            <button type="button" class="btn btn-outline btn-sm" onclick="setRange(1,10)">1–10 micro</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="setRange(10,50)">10–50 small</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="setRange(10,200)">10–200 SMB</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="setRange(50,500)">50–500 mid-market</button>
+            <button type="button" class="btn btn-outline btn-sm" onclick="setRange(200,2000)">200+ enterprise</button>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top:20px;">
+          <label>Multi-location businesses</label>
+          <div style="margin-top:8px;">
+            <label class="toggle-wrap" for="multi_location">
+              <input type="checkbox" class="toggle-input" id="multi_location" name="multi_location" value="yes"
+                onchange="this.nextElementSibling.querySelector('.toggle-thumb').style.left = this.checked ? '23px' : '3px'; this.nextElementSibling.style.background = this.checked ? 'var(--accent)' : '';">
+              <div class="toggle-track" style="cursor:pointer;">
+                <div class="toggle-thumb"></div>
+              </div>
+              <span class="toggle-lbl">Target companies with multiple locations or regions</span>
+            </label>
+          </div>
+          <div style="font-size:0.78rem; color:var(--muted); margin-top:6px;">
+            Multi-location businesses typically have stronger lead budgets and a more pressing need for scalable lead generation.
+          </div>
+        </div>
+      </div><!-- /step-3 -->
+
+
+      <!-- ── Step 4: Buying Signals ── -->
+      <div id="step-4" class="wizard-step">
+        <div class="step-title">Which buying signals should we look for?</div>
+        <div class="step-hint">Leads with these signals are more likely to be in-market for pay-per-lead services. Select all that apply.</div>
+
+        <div class="signal-grid">
+          <label class="signal-card-wrap">
+            <input type="checkbox" name="buying_signals" value="running_ads">
+            <div class="signal-card">
+              <div class="sig-title">📢 Running paid ads</div>
+              <div class="sig-desc">Active Meta, Google, or YouTube ad campaigns — already spending on lead acquisition.</div>
+            </div>
+          </label>
+
+          <label class="signal-card-wrap">
+            <input type="checkbox" name="buying_signals" value="lead_forms">
+            <div class="signal-card">
+              <div class="sig-title">📋 Lead capture forms</div>
+              <div class="sig-desc">Website has lead forms or quote request flows — built for volume lead intake.</div>
+            </div>
+          </label>
+
+          <label class="signal-card-wrap">
+            <input type="checkbox" name="buying_signals" value="tcpa_language">
+            <div class="signal-card">
+              <div class="sig-title">⚖️ TCPA language</div>
+              <div class="sig-desc">Site references consent/TCPA compliance — signalling they buy third-party leads already.</div>
+            </div>
+          </label>
+
+          <label class="signal-card-wrap">
+            <input type="checkbox" name="buying_signals" value="call_centre">
+            <div class="signal-card">
+              <div class="sig-title">📞 Call centre / sales team</div>
+              <div class="sig-desc">Dedicated sales or call team that needs a consistent lead supply to stay productive.</div>
+            </div>
+          </label>
+
+          <label class="signal-card-wrap">
+            <input type="checkbox" name="buying_signals" value="marketing_roles">
+            <div class="signal-card">
+              <div class="sig-title">🎯 Dedicated marketing roles</div>
+              <div class="sig-desc">Has a marketing manager or growth hire — someone who owns lead volume targets.</div>
+            </div>
+          </label>
+
+          <label class="signal-card-wrap">
+            <input type="checkbox" name="buying_signals" value="high_ltv_vertical">
+            <div class="signal-card">
+              <div class="sig-title">💰 High-LTV vertical</div>
+              <div class="sig-desc">Insurance, legal, financial, home services, or solar — each lead is worth hundreds to thousands.</div>
+            </div>
+          </label>
+
+          <label class="signal-card-wrap">
+            <input type="checkbox" name="buying_signals" value="affiliate_program">
+            <div class="signal-card">
+              <div class="sig-title">🤝 Affiliate / referral program</div>
+              <div class="sig-desc">Already buying traffic or leads via a network — open to external supply channels.</div>
+            </div>
+          </label>
+        </div>
+
+        <p style="font-size:0.8rem; color:var(--muted); margin-top:12px;">No signals selected? That's OK — the score algorithm will still work, just with a lower signal sub-score.</p>
+      </div><!-- /step-4 -->
+
+
+      <!-- ── Step 5: Target Titles ── -->
+      <div id="step-5" class="wizard-step">
+        <div class="step-title">Which job titles should we target?</div>
+        <div class="step-hint">Click a chip to toggle it. Add custom titles below. At least one required.</div>
+
+        <div class="chip-row" id="titles-chips">
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="Marketing Manager" checked>
+            <span class="chip">Marketing Manager</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="Head of Marketing" checked>
+            <span class="chip">Head of Marketing</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="VP Marketing" checked>
+            <span class="chip">VP Marketing</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="Director of Marketing" checked>
+            <span class="chip">Director of Marketing</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="Affiliate Manager" checked>
+            <span class="chip">Affiliate Manager</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="Partnerships Manager" checked>
+            <span class="chip">Partnerships Manager</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="Media Buyer" checked>
+            <span class="chip">Media Buyer</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="Head of Growth" checked>
+            <span class="chip">Head of Growth</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="CMO" checked>
+            <span class="chip">CMO</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="CEO (≤50 employees)" checked>
+            <span class="chip">CEO (≤50 employees)</span>
+          </label>
+          <label class="chip-wrap">
+            <input type="checkbox" name="target_titles" value="Founder (≤50 employees)" checked>
+            <span class="chip">Founder (≤50 employees)</span>
+          </label>
+        </div>
+
+        <!-- Custom title input -->
+        <div style="display:flex; gap:8px; margin-top:16px;" id="custom-titles-wrap">
+          <!-- Dynamically added custom titles appear here -->
+        </div>
+        <div style="display:flex; gap:8px; margin-top:12px; align-items:center;">
+          <input type="text" id="custom_title_input" placeholder="Add a custom title (e.g. Growth Lead)"
+            style="max-width:280px;" onkeydown="if(event.key==='Enter'){event.preventDefault();addCustomTitle();}">
+          <button type="button" class="btn btn-outline btn-sm" onclick="addCustomTitle()">+ Add</button>
+        </div>
+      </div><!-- /step-5 -->
+
+
+      <!-- ── Step 6: Exclusions & Review ── -->
+      <div id="step-6" class="wizard-step">
+        <div class="step-title">Red flag exclusions</div>
+        <div class="step-hint">These leads are auto-rejected. Uncheck to override a rule for this campaign.</div>
+
+        <div style="margin-bottom:20px;">
+          <div class="excl-item">
+            <input type="checkbox" id="excl_small_cos" name="excl_small_cos" value="on" checked>
+            <div class="excl-item-body">
+              <label for="excl_small_cos" class="excl-title" style="cursor:pointer;">🚫 Exclude &lt;5 employees</label>
+              <div class="excl-desc">Micro-businesses rarely have budget for third-party lead generation.</div>
+            </div>
+          </div>
+
+          <div class="excl-item">
+            <input type="checkbox" id="excl_solo_ops" name="excl_solo_ops" value="on" checked>
+            <div class="excl-item-body">
+              <label for="excl_solo_ops" class="excl-title" style="cursor:pointer;">🚫 Exclude solo operators</label>
+              <div class="excl-desc">Sole traders and freelancers rarely buy lead volume at scale.</div>
+            </div>
+          </div>
+
+          <div class="excl-item">
+            <input type="checkbox" id="excl_regulated" name="excl_regulated" value="on" checked>
+            <div class="excl-item-body">
+              <label for="excl_regulated" class="excl-title" style="cursor:pointer;">🚫 Exclude ACA / Medicare / car insurance verticals</label>
+              <div class="excl-desc">These verticals have complex compliance requirements that conflict with standard lead gen operations.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Campaign Summary -->
+        <div class="summary-box" id="campaign-summary">
+          <div style="font-size:0.85rem; font-weight:700; margin-bottom:10px; color:var(--text);">📋 Campaign summary</div>
+          <div class="sum-row"><span class="sum-lbl">Campaign</span><span id="sum-name">—</span></div>
+          <div class="sum-row"><span class="sum-lbl">Vertical</span><span id="sum-vertical">—</span></div>
+          <div class="sum-row"><span class="sum-lbl">Geography</span><span id="sum-geo">—</span></div>
+          <div class="sum-row"><span class="sum-lbl">Company size</span><span id="sum-size">—</span></div>
+          <div class="sum-row"><span class="sum-lbl">Multi-location</span><span id="sum-multiloc">—</span></div>
+          <div class="sum-row"><span class="sum-lbl">Buying signals</span><span id="sum-signals">—</span></div>
+          <div class="sum-row"><span class="sum-lbl">Titles</span><span id="sum-titles">—</span></div>
+        </div>
+
+        <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:12px; font-size:0.83rem; color:#92400e; margin-bottom:16px;">
+          ⏱ Takes ~30 seconds — Claude generates the strategy and 4-email sequence automatically.
+        </div>
+      </div><!-- /step-6 -->
+
+
+      <!-- Navigation -->
+      <div style="display:flex; justify-content:space-between; margin-top:28px; padding-top:20px; border-top:1px solid var(--border); align-items:center;">
+        <button type="button" id="btn-back" onclick="wizardBack()"
+          class="btn btn-outline" style="visibility:hidden;">← Back</button>
+
+        <div style="font-size:0.78rem; color:var(--muted);" id="step-counter">Step 1 of 6</div>
+
+        <div style="display:flex; gap:10px;">
+          <button type="button" id="btn-next" onclick="wizardNext()" class="btn btn-primary">Next →</button>
+          <button type="submit" id="btn-submit" class="btn btn-primary" style="display:none;">
+            Generate Strategy &amp; Sequence
+          </button>
+        </div>
+      </div>
+
+    </div><!-- /card -->
+  </form>
 </div>
+
+<script>
+let step = 1;
+const TOTAL = 6;
+const LABELS = ['Vertical', 'Geography', 'Company', 'Signals', 'Titles', 'Exclusions'];
+
+/* ─── Navigation ─── */
+function wizardNext() {
+  if (!validate(step)) return;
+  if (step < TOTAL) {
+    if (step === 5) populateSummary();
+    showStep(step + 1);
+  }
+}
+
+function wizardBack() {
+  if (step > 1) showStep(step - 1);
+}
+
+function showStep(n) {
+  document.getElementById('step-' + step).classList.remove('active');
+  step = n;
+  document.getElementById('step-' + step).classList.add('active');
+  updateIndicator();
+  document.getElementById('btn-back').style.visibility  = step > 1 ? 'visible' : 'hidden';
+  document.getElementById('btn-next').style.display     = step < TOTAL ? '' : 'none';
+  document.getElementById('btn-submit').style.display   = step === TOTAL ? '' : 'none';
+  document.getElementById('step-counter').textContent   = 'Step ' + step + ' of ' + TOTAL;
+}
+
+function updateIndicator() {
+  for (let i = 1; i <= TOTAL; i++) {
+    const c = document.getElementById('sc-' + i);
+    const l = document.getElementById('sl-' + i);
+    c.className = 'wiz-circle' + (i < step ? ' done' : i === step ? ' active' : '');
+    l.className = 'wiz-lbl' + (i === step ? ' active' : '');
+    if (i < TOTAL) {
+      document.getElementById('wl-' + i).className = 'wiz-line' + (i < step ? ' done' : '');
+    }
+  }
+}
+
+/* ─── Validation ─── */
+function validate(s) {
+  if (s === 1) {
+    const name = document.getElementById('name').value.trim();
+    if (!name) { alert('Campaign name is required.'); return false; }
+    const v = document.getElementById('vertical').value;
+    const vc = document.getElementById('vertical_custom').value.trim();
+    if (!v) { alert('Please select a vertical.'); return false; }
+    if (v === 'other' && !vc) { alert('Please enter a custom vertical name.'); return false; }
+  }
+  if (s === 2) {
+    const checked = document.querySelectorAll('input[name="geo_countries"]:checked');
+    if (!checked.length) { alert('Please select at least one target country.'); return false; }
+  }
+  if (s === 5) {
+    const titles = document.querySelectorAll('input[name="target_titles"]:checked');
+    if (!titles.length) { alert('Please select at least one target title.'); return false; }
+  }
+  return true;
+}
+
+/* ─── Vertical dropdown ─── */
+function onVerticalChange(sel) {
+  document.getElementById('vertical_custom_wrap').style.display =
+    sel.value === 'other' ? '' : 'none';
+}
+
+/* ─── Employee range sliders ─── */
+function updateRange(type, val) {
+  if (type === 'min') {
+    document.getElementById('emp_min_val').textContent = val;
+    const maxEl = document.getElementById('employees_max');
+    if (parseInt(val) >= parseInt(maxEl.value)) {
+      maxEl.value = parseInt(val) + 10;
+      document.getElementById('emp_max_val').textContent = maxEl.value;
+    }
+  } else {
+    document.getElementById('emp_max_val').textContent = val;
+    const minEl = document.getElementById('employees_min');
+    if (parseInt(val) <= parseInt(minEl.value)) {
+      minEl.value = parseInt(val) - 10;
+      document.getElementById('emp_min_val').textContent = minEl.value;
+    }
+  }
+}
+
+function setRange(min, max) {
+  document.getElementById('employees_min').value = min;
+  document.getElementById('employees_max').value = max;
+  document.getElementById('emp_min_val').textContent = min;
+  document.getElementById('emp_max_val').textContent = max;
+}
+
+/* ─── Custom titles ─── */
+function addCustomTitle() {
+  const input = document.getElementById('custom_title_input');
+  const title = input.value.trim();
+  if (!title) return;
+  const uid = 'ct_' + Date.now();
+  const wrap = document.getElementById('custom-titles-wrap');
+  const div = document.createElement('div');
+  div.innerHTML =
+    '<label class="chip-wrap" style="display:inline-flex;">' +
+      '<input type="checkbox" name="target_titles" value="' + title + '" id="' + uid + '" checked>' +
+      '<span class="chip" style="background:var(--accent);border-color:var(--accent);color:#fff;">' +
+        title +
+        ' <span onclick="this.closest(\'label\').remove()" style="margin-left:5px;cursor:pointer;opacity:0.8;font-size:0.7rem;">✕</span>' +
+      '</span>' +
+    '</label>';
+  wrap.appendChild(div);
+  input.value = '';
+  input.focus();
+}
+
+/* ─── Summary population (Step 6) ─── */
+function populateSummary() {
+  // Name
+  document.getElementById('sum-name').textContent =
+    document.getElementById('name').value.trim() || '—';
+
+  // Vertical
+  const vSel = document.getElementById('vertical');
+  const vCustom = document.getElementById('vertical_custom').value.trim();
+  document.getElementById('sum-vertical').textContent =
+    vSel.value === 'other' ? vCustom : (vSel.options[vSel.selectedIndex]?.text || '—');
+
+  // Geography
+  const countries = [...document.querySelectorAll('input[name="geo_countries"]:checked')]
+    .map(c => c.value);
+  const cities = document.getElementById('geo_cities').value.trim();
+  document.getElementById('sum-geo').textContent =
+    countries.length ? countries.join(', ') + (cities ? ' (' + cities + ')' : '') : '—';
+
+  // Company size
+  const empMin = document.getElementById('employees_min').value;
+  const empMax = document.getElementById('employees_max').value;
+  document.getElementById('sum-size').textContent = empMin + '–' + empMax + ' employees';
+
+  // Multi-location
+  document.getElementById('sum-multiloc').textContent =
+    document.getElementById('multi_location').checked ? 'Yes — multi-location targeted' : 'No preference';
+
+  // Buying signals
+  const sigs = [...document.querySelectorAll('input[name="buying_signals"]:checked')]
+    .map(s => s.value.replace(/_/g, ' '));
+  document.getElementById('sum-signals').textContent = sigs.length ? sigs.join(', ') : 'None selected';
+
+  // Titles
+  const titles = [...document.querySelectorAll('input[name="target_titles"]:checked')]
+    .map(t => t.value);
+  document.getElementById('sum-titles').textContent =
+    titles.length ? titles.slice(0, 5).join(', ') + (titles.length > 5 ? ' +' + (titles.length - 5) + ' more' : '') : '—';
+}
+
+/* ─── Handle toggle track clicks (visual sync) ─── */
+document.querySelector('.toggle-track').addEventListener('click', function() {
+  const cb = document.getElementById('multi_location');
+  const thumb = this.querySelector('.toggle-thumb');
+  // checkbox state toggles via its label click, just sync visual
+  setTimeout(() => {
+    thumb.style.left = cb.checked ? '23px' : '3px';
+    this.style.background = cb.checked ? 'var(--accent)' : '';
+  }, 0);
+});
+</script>
 {% endblock %}
