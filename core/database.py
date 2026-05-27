@@ -29,6 +29,17 @@ CREATE TABLE IF NOT EXISTS leads (
     linkedin_url TEXT,
     source TEXT,
     icp_score INTEGER,
+    score_title INTEGER,
+    score_company_size INTEGER,
+    score_multi_location INTEGER,
+    score_ad_spend INTEGER,
+    score_ltv_vertical INTEGER,
+    score_marketing_roles INTEGER,
+    score_data_completeness INTEGER,
+    score_rationale TEXT,
+    buying_signals TEXT,
+    auto_rejected INTEGER DEFAULT 0,
+    auto_reject_reason TEXT,
     status TEXT DEFAULT 'new',
     notes TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -138,19 +149,67 @@ def init_db():
 # ── Leads ────────────────────────────────────────────────────────────────────
 
 def insert_lead(lead: dict) -> Optional[int]:
-    """Insert a lead; return new id or None if duplicate email."""
+    """Insert a lead; return new id or None if duplicate email.
+
+    Accepts all scoring sub-score fields produced by lead_enricher.score_lead().
+    Unknown keys in the dict are ignored — safe to pass the full enriched lead.
+    """
     sql = """
         INSERT OR IGNORE INTO leads
             (company_name, domain, industry, employee_count, city, country,
              first_name, last_name, title, email, email_verified, linkedin_url,
-             source, icp_score, status, notes)
+             source, icp_score,
+             score_title, score_company_size, score_multi_location,
+             score_ad_spend, score_ltv_vertical, score_marketing_roles,
+             score_data_completeness, score_rationale, buying_signals,
+             auto_rejected, auto_reject_reason,
+             status, notes)
         VALUES
             (:company_name, :domain, :industry, :employee_count, :city, :country,
              :first_name, :last_name, :title, :email, :email_verified, :linkedin_url,
-             :source, :icp_score, :status, :notes)
+             :source, :icp_score,
+             :score_title, :score_company_size, :score_multi_location,
+             :score_ad_spend, :score_ltv_vertical, :score_marketing_roles,
+             :score_data_completeness, :score_rationale, :buying_signals,
+             :auto_rejected, :auto_reject_reason,
+             :status, :notes)
     """
+    # Provide defaults for all scoring fields so callers don't have to set them
+    row = {
+        "company_name":           lead.get("company_name", ""),
+        "domain":                 lead.get("domain"),
+        "industry":               lead.get("industry"),
+        "employee_count":         lead.get("employee_count"),
+        "city":                   lead.get("city"),
+        "country":                lead.get("country"),
+        "first_name":             lead.get("first_name"),
+        "last_name":              lead.get("last_name"),
+        "title":                  lead.get("title"),
+        "email":                  lead.get("email"),
+        "email_verified":         lead.get("email_verified", 0),
+        "linkedin_url":           lead.get("linkedin_url"),
+        "source":                 lead.get("source"),
+        "icp_score":              lead.get("icp_score"),
+        "score_title":            lead.get("score_title"),
+        "score_company_size":     lead.get("score_company_size"),
+        "score_multi_location":   lead.get("score_multi_location"),
+        "score_ad_spend":         lead.get("score_ad_spend"),
+        "score_ltv_vertical":     lead.get("score_ltv_vertical"),
+        "score_marketing_roles":  lead.get("score_marketing_roles"),
+        "score_data_completeness": lead.get("score_data_completeness"),
+        "score_rationale":        lead.get("score_rationale"),
+        "buying_signals":         (
+            json.dumps(lead["buying_signals"])
+            if isinstance(lead.get("buying_signals"), dict)
+            else lead.get("buying_signals")
+        ),
+        "auto_rejected":          lead.get("auto_rejected", 0),
+        "auto_reject_reason":     lead.get("auto_reject_reason"),
+        "status":                 lead.get("status", "new"),
+        "notes":                  lead.get("notes"),
+    }
     with db() as conn:
-        cur = conn.execute(sql, lead)
+        cur = conn.execute(sql, row)
         return cur.lastrowid if cur.rowcount else None
 
 
@@ -167,10 +226,37 @@ def get_lead_by_email(email: str) -> Optional[dict]:
 
 
 def update_lead_status(lead_id: int, status: str):
+    """Update a lead's status field."""
     with db() as conn:
         conn.execute(
             "UPDATE leads SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
             (status, lead_id),
+        )
+
+
+def update_lead_scores(lead_id: int, scores: dict):
+    """Write scoring sub-scores back to an existing lead row.
+
+    Accepts the dict returned by lead_enricher.score_lead().
+    Only updates the scoring columns — contact info is untouched.
+    """
+    with db() as conn:
+        conn.execute(
+            """UPDATE leads SET
+                   icp_score              = :icp_score,
+                   score_title            = :score_title,
+                   score_company_size     = :score_company_size,
+                   score_multi_location   = :score_multi_location,
+                   score_ad_spend         = :score_ad_spend,
+                   score_ltv_vertical     = :score_ltv_vertical,
+                   score_marketing_roles  = :score_marketing_roles,
+                   score_data_completeness = :score_data_completeness,
+                   score_rationale        = :score_rationale,
+                   auto_rejected          = :auto_rejected,
+                   auto_reject_reason     = :auto_reject_reason,
+                   updated_at             = CURRENT_TIMESTAMP
+               WHERE id = :lead_id""",
+            {**scores, "lead_id": lead_id},
         )
 
 

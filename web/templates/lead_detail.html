@@ -1,58 +1,208 @@
 {% extends "base.html" %}
-{% block title %}{{ lead.first_name }} {{ lead.last_name }}{% endblock %}
+{% block title %}{{ lead.first_name }} {{ lead.last_name }} — {{ lead.company_name }}{% endblock %}
 
 {% block body %}
 <div class="topbar">
   <a href="/leads" style="color:var(--muted); text-decoration:none; font-size:0.875rem;">← Leads</a>
   <h1 style="margin-left:12px;">{{ lead.first_name }} {{ lead.last_name }}</h1>
   <span style="margin-left:8px; color:var(--muted); font-size:0.875rem;">{{ lead.company_name }}</span>
+  <div class="topbar-actions">
+    {% if lead.status == 'new' %}
+    <form method="post" action="/leads/bulk_action" style="display:inline;">
+      <input type="hidden" name="action" value="approve">
+      <input type="hidden" name="lead_ids" value="{{ lead.id }}">
+      <button type="submit" class="btn btn-success btn-sm">Approve</button>
+    </form>
+    <form method="post" action="/leads/bulk_action" style="display:inline; margin-left:6px;">
+      <input type="hidden" name="action" value="reject">
+      <input type="hidden" name="lead_ids" value="{{ lead.id }}">
+      <button type="submit" class="btn btn-danger btn-sm">Reject</button>
+    </form>
+    {% endif %}
+  </div>
 </div>
 
 <div class="content">
+
+  <!-- Top row: contact + quality overview -->
   <div class="grid grid-2" style="margin-bottom:20px;">
+
+    <!-- Contact info -->
     <div class="card">
-      <div class="section-title" style="margin-bottom:12px;">Contact Info</div>
+      <div class="section-title" style="margin-bottom:14px;">Contact Info</div>
       <table style="width:100%;">
-        <tr><td style="color:var(--muted); width:120px;">Name</td><td>{{ lead.first_name }} {{ lead.last_name }}</td></tr>
-        <tr><td style="color:var(--muted);">Title</td><td>{{ lead.title or '—' }}</td></tr>
-        <tr><td style="color:var(--muted);">Email</td><td>{{ lead.email }}</td></tr>
-        <tr><td style="color:var(--muted);">Company</td><td>{{ lead.company_name or '—' }}</td></tr>
-        <tr><td style="color:var(--muted);">Domain</td><td>{{ lead.domain or '—' }}</td></tr>
-        <tr><td style="color:var(--muted);">Industry</td><td>{{ lead.industry or '—' }}</td></tr>
-        <tr><td style="color:var(--muted);">Employees</td><td>{{ lead.employee_count or '—' }}</td></tr>
-        <tr><td style="color:var(--muted);">Location</td><td>{{ lead.city or '' }}{% if lead.city and lead.country %}, {% endif %}{{ lead.country or '' }}</td></tr>
+        <tr><td style="color:var(--muted); width:130px; padding:6px 0;">Name</td>
+            <td>{{ lead.first_name }} {{ lead.last_name }}</td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">Title</td>
+            <td>{{ lead.title or '—' }}</td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">Email</td>
+            <td>
+              {{ lead.email }}
+              {% if lead.email_verified %}
+              <span class="badge badge-green" style="margin-left:6px;">verified</span>
+              {% else %}
+              <span class="badge badge-gray" style="margin-left:6px;">unverified</span>
+              {% endif %}
+            </td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">Company</td>
+            <td>{{ lead.company_name or '—' }}</td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">Domain</td>
+            <td>{% if lead.domain %}<a href="https://{{ lead.domain }}" target="_blank">{{ lead.domain }} ↗</a>{% else %}—{% endif %}</td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">Industry</td>
+            <td>{{ lead.industry or '—' }}</td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">Employees</td>
+            <td>{{ lead.employee_count or '—' }}</td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">Location</td>
+            <td>
+              {{ lead.city or '' }}{% if lead.city and lead.country %}, {% endif %}{{ lead.country or '' }}
+              {% if not lead.city and not lead.country %}—{% endif %}
+            </td></tr>
         {% if lead.linkedin_url %}
-        <tr><td style="color:var(--muted);">LinkedIn</td><td><a href="{{ lead.linkedin_url }}" target="_blank">Profile →</a></td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">LinkedIn</td>
+            <td><a href="{{ lead.linkedin_url }}" target="_blank">Profile ↗</a></td></tr>
         {% endif %}
+        <tr><td style="color:var(--muted); padding:6px 0;">Source</td>
+            <td><span class="badge badge-gray">{{ lead.source or '—' }}</span></td></tr>
+        <tr><td style="color:var(--muted); padding:6px 0;">Added</td>
+            <td style="font-size:0.8rem;">{{ lead.created_at[:16] if lead.created_at else '—' }}</td></tr>
       </table>
     </div>
 
+    <!-- Score overview + status -->
     <div class="card">
-      <div class="section-title" style="margin-bottom:12px;">Lead Quality</div>
-      <div style="margin-bottom:12px;">
-        <div class="card-title">ICP Score</div>
-        <div class="card-value {% if lead.icp_score >= 70 %}score-high{% elif lead.icp_score >= 40 %}score-mid{% else %}score-low{% endif %}">
-          {{ lead.icp_score }}/100
-        </div>
+      <div class="section-title" style="margin-bottom:14px;">Lead Quality</div>
+
+      {% if lead.auto_rejected %}
+      <!-- Auto-rejected banner -->
+      <div style="background:#fee2e2; border:1px solid #fca5a5; border-radius:6px; padding:12px 16px; margin-bottom:16px;">
+        <div style="font-weight:700; color:#dc2626; margin-bottom:4px;">⛔ Auto-rejected</div>
+        <div style="font-size:0.85rem; color:#7f1d1d;">{{ lead.auto_reject_reason or 'Reason not recorded' }}</div>
       </div>
-      <table>
-        <tr><td style="color:var(--muted); width:120px;">Source</td><td><span class="badge badge-gray">{{ lead.source or '—' }}</span></td></tr>
-        <tr><td style="color:var(--muted);">Email verified</td><td>{% if lead.email_verified %}<span class="badge badge-green">Yes</span>{% else %}<span class="badge badge-gray">No</span>{% endif %}</td></tr>
-        <tr><td style="color:var(--muted);">Status</td><td>
-          {% if lead.status == 'replied' %}<span class="badge badge-green">replied</span>
-          {% elif lead.status == 'approved' %}<span class="badge badge-blue">approved</span>
-          {% elif lead.status == 'contacted' %}<span class="badge badge-yellow">contacted</span>
-          {% elif lead.status == 'rejected' %}<span class="badge badge-red">rejected</span>
-          {% elif lead.status == 'unsubscribed' %}<span class="badge badge-orange">unsubscribed</span>
-          {% else %}<span class="badge badge-gray">{{ lead.status }}</span>{% endif %}
-        </td></tr>
-        <tr><td style="color:var(--muted);">Added</td><td style="font-size:0.8rem;">{{ lead.created_at[:16] if lead.created_at else '—' }}</td></tr>
-      </table>
-      {% if lead.notes %}
-      <div style="margin-top:12px; padding:10px; background:var(--bg); border-radius:4px; font-size:0.8rem; color:var(--muted);">{{ lead.notes }}</div>
+      {% else %}
+      <!-- ICP score gauge -->
+      <div style="display:flex; align-items:baseline; gap:10px; margin-bottom:6px;">
+        <span class="card-value {% if lead.icp_score >= 70 %}score-high{% elif lead.icp_score >= 40 %}score-mid{% else %}score-low{% endif %}" style="font-size:2.5rem;">
+          {{ lead.icp_score or 0 }}
+        </span>
+        <span style="color:var(--muted); font-size:1rem;">/ 100</span>
+        {% if lead.icp_score >= 70 %}
+        <span class="badge badge-green">High fit</span>
+        {% elif lead.icp_score >= 40 %}
+        <span class="badge badge-yellow">Mid fit</span>
+        {% else %}
+        <span class="badge badge-red">Low fit</span>
+        {% endif %}
+      </div>
+
+      <!-- Overall progress bar -->
+      <div class="progress" style="margin-bottom:16px; height:10px;">
+        <div class="progress-bar" style="width:{{ lead.icp_score or 0 }}%;
+          background:{% if lead.icp_score >= 70 %}var(--green){% elif lead.icp_score >= 40 %}var(--yellow){% else %}var(--red){% endif %};"></div>
+      </div>
+      {% endif %}
+
+      <!-- Status row -->
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:12px;">
+        <span style="color:var(--muted); font-size:0.85rem; width:70px;">Status</span>
+        {% if lead.status == 'replied' %}<span class="badge badge-green">replied</span>
+        {% elif lead.status == 'approved' %}<span class="badge badge-blue">approved</span>
+        {% elif lead.status == 'contacted' %}<span class="badge badge-yellow">contacted</span>
+        {% elif lead.status == 'rejected' %}<span class="badge badge-red">rejected</span>
+        {% elif lead.status == 'unsubscribed' %}<span class="badge badge-orange">unsubscribed</span>
+        {% else %}<span class="badge badge-gray">{{ lead.status }}</span>{% endif %}
+      </div>
+
+      {% if lead.score_rationale %}
+      <div style="background:var(--bg); border-radius:6px; padding:10px 12px; font-size:0.8rem; color:var(--muted); line-height:1.5;">
+        {{ lead.score_rationale }}
+      </div>
       {% endif %}
     </div>
   </div>
+
+  <!-- Score breakdown -->
+  {% if not lead.auto_rejected %}
+  <div class="card" style="margin-bottom:20px;">
+    <div class="section-title" style="margin-bottom:16px;">Score Breakdown</div>
+
+    <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px 32px;">
+
+      {# Helper macro: one criterion row with progress bar #}
+      {% macro score_row(label, score, max_pts, description) %}
+      <div>
+        <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:4px;">
+          <span style="font-size:0.85rem; font-weight:500;">{{ label }}</span>
+          <span style="font-size:0.8rem; color:var(--muted);">
+            <span style="font-weight:700;
+              {% if score == max_pts %}color:var(--green)
+              {% elif score > 0 %}color:var(--yellow)
+              {% else %}color:var(--red){% endif %};">{{ score }}</span>
+            / {{ max_pts }}
+          </span>
+        </div>
+        <div class="progress" style="height:6px; margin-bottom:4px;">
+          <div class="progress-bar" style="width:{{ (score / max_pts * 100)|round|int }}%;
+            background:{% if score == max_pts %}var(--green){% elif score > 0 %}var(--yellow){% else %}var(--red){% endif %};
+            transition: width 0.4s ease;"></div>
+        </div>
+        <div style="font-size:0.75rem; color:var(--muted);">{{ description }}</div>
+      </div>
+      {% endmacro %}
+
+      {{ score_row(
+          "Title Match", lead.score_title or 0, 20,
+          "Exact or near-exact match to target decision-maker titles"
+      ) }}
+      {{ score_row(
+          "Ad Spend Signal", lead.score_ad_spend or 0, 20,
+          "Running Meta / Google / YouTube paid advertising"
+      ) }}
+      {{ score_row(
+          "Company Size", lead.score_company_size or 0, 15,
+          "Employee count in ideal range (10–200)"
+      ) }}
+      {{ score_row(
+          "Multi-location", lead.score_multi_location or 0, 15,
+          "Confirmed multi-location or multi-region presence"
+      ) }}
+      {{ score_row(
+          "High-LTV Vertical", lead.score_ltv_vertical or 0, 15,
+          "Insurance, legal, financial, medical, home services, solar"
+      ) }}
+      {{ score_row(
+          "Marketing Roles", lead.score_marketing_roles or 0, 10,
+          "Dedicated marketing / growth / affiliate role confirmed"
+      ) }}
+      {{ score_row(
+          "Data Completeness", lead.score_data_completeness or 0, 5,
+          "Verified email + LinkedIn URL + domain present"
+      ) }}
+
+    </div>
+
+    <!-- Total bar at bottom -->
+    <div style="margin-top:20px; padding-top:16px; border-top:1px solid var(--border); display:flex; align-items:center; gap:16px;">
+      <span style="font-size:0.85rem; color:var(--muted); width:100px;">Total score</span>
+      <div class="progress" style="flex:1; height:10px;">
+        <div class="progress-bar" style="width:{{ lead.icp_score or 0 }}%;
+          background:{% if lead.icp_score >= 70 %}var(--green){% elif lead.icp_score >= 40 %}var(--yellow){% else %}var(--red){% endif %};"></div>
+      </div>
+      <span style="font-weight:700; font-size:1rem;
+        {% if lead.icp_score >= 70 %}color:var(--green){% elif lead.icp_score >= 40 %}color:var(--yellow){% else %}color:var(--red){% endif %};">
+        {{ lead.icp_score or 0 }} / 100
+      </span>
+    </div>
+  </div>
+  {% endif %}
+
+  <!-- Buying signals (if any) -->
+  {% if lead.buying_signals %}
+  {% set signals = lead.buying_signals | tojson if lead.buying_signals is mapping else lead.buying_signals %}
+  <div class="card" style="margin-bottom:20px;">
+    <div class="section-title" style="margin-bottom:10px;">Buying Signals</div>
+    <div style="font-family:monospace; font-size:0.8rem; color:var(--muted); white-space:pre-wrap; background:var(--bg); padding:10px; border-radius:4px;">{{ signals }}</div>
+  </div>
+  {% endif %}
 
   <!-- Outreach history -->
   <div class="card">
@@ -60,7 +210,15 @@
     {% if history %}
     <table>
       <thead>
-        <tr><th>Step</th><th>Status</th><th>Scheduled</th><th>Sent</th><th>Opened</th><th>Replied</th><th>Classification</th></tr>
+        <tr>
+          <th>Step</th>
+          <th>Status</th>
+          <th>Scheduled</th>
+          <th>Sent</th>
+          <th>Opened</th>
+          <th>Replied</th>
+          <th>Classification</th>
+        </tr>
       </thead>
       <tbody>
         {% for h in history %}
@@ -80,7 +238,9 @@
           <td style="font-size:0.8rem; color:var(--muted);">{{ h.replied_at[:16] if h.replied_at else '—' }}</td>
           <td style="font-size:0.8rem;">
             {% if h.reply_classification %}
-            <span class="badge {% if h.reply_is_human %}badge-green{% else %}badge-gray{% endif %}">{{ h.reply_classification }}</span>
+            <span class="badge {% if h.reply_is_human %}badge-green{% else %}badge-gray{% endif %}">
+              {{ h.reply_classification }}
+            </span>
             {% else %}—{% endif %}
           </td>
         </tr>
@@ -88,8 +248,9 @@
       </tbody>
     </table>
     {% else %}
-    <p style="color:var(--muted); font-size:0.875rem;">No outreach sent yet for this lead.</p>
+    <p style="color:var(--muted); font-size:0.875rem; padding:8px 0;">No outreach sent yet for this lead.</p>
     {% endif %}
   </div>
+
 </div>
 {% endblock %}

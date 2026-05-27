@@ -81,8 +81,13 @@ def export():
     output = io.StringIO()
     writer = csv.DictWriter(output, fieldnames=[
         "id", "company_name", "first_name", "last_name", "title",
-        "email", "domain", "industry", "employee_count", "city", "country",
-        "source", "icp_score", "status", "email_verified", "notes", "created_at",
+        "email", "email_verified", "domain", "industry", "employee_count", "city", "country",
+        "source", "status",
+        "icp_score",
+        "score_title", "score_company_size", "score_multi_location", "score_ad_spend",
+        "score_ltv_vertical", "score_marketing_roles", "score_data_completeness",
+        "score_rationale", "auto_rejected", "auto_reject_reason",
+        "buying_signals", "notes", "created_at",
     ])
     writer.writeheader()
     for lead in leads:
