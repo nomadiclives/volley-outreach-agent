@@ -13,11 +13,25 @@ Each criterion is scored independently from structured lead data:
   ─────────────────── ─────
   TOTAL              100 pts
 
-Auto-reject rules (hard-coded, stored as auto_rejected=1):
+── HARD GATES vs SOFT SCORING ───────────────────────────────────────────────
+
+Hard gates (stored as auto_rejected=1, hidden from approval queue):
   - Fewer than 5 employees
-  - Solo operator (title/count signals)
-  - Vertical is ACA / Medicare / car insurance (unless icp allows it)
-  - No email address found
+  - Solo operator (title or employee-count signal)
+  - Vertical is ACA / Medicare / car insurance (unless ICP allows it)
+  - No email found AND Hunter confidence < 70%
+
+These are the ONLY four reasons a lead can be excluded. A lead that misses
+every other criterion — no ads detected, single location, partial title match
+— still enters the CRM and scores low (yellow). The operator decides.
+
+Soft scoring (affect icp_score only, never exclude):
+  - Buying signals (ads, lead forms, TCPA, etc.)
+  - Multi-location presence
+  - Title match quality
+  - High-LTV vertical
+  - Data completeness (email verified, LinkedIn, domain)
+  - Company size fit within ideal range
 
 Claude is NOT used for the numeric scores — scoring is deterministic.
 Claude IS used for the one-line score_rationale (optional, falls back
@@ -192,7 +206,7 @@ def _norm(text: Optional[str]) -> str:
     return (text or "").lower().strip()
 
 
-# ── Per-criterion scoring functions ───────────────────────────────────────────
+# ── Per-criterion scoring functions (SOFT SCORING — affect score only, never exclude) ──
 
 
 def _score_title(lead: dict, icp: dict) -> int:
@@ -329,36 +343,38 @@ def _score_data_completeness(lead: dict) -> int:
 def _check_auto_reject(lead: dict, icp: dict) -> tuple[bool, str]:
     """Return (should_reject, reason).
 
-    Hard-coded rejection criteria — cannot be overridden at the lead level.
-    ICP can set allow_excluded_verticals=True to skip vertical exclusions.
+    Applies the four HARD GATES only. Everything else is soft scoring.
+    ICP can set allow_excluded_verticals=True to bypass gate 3.
     """
     emp = _parse_employee_count(lead.get("employee_count"))
     title = _norm(lead.get("title"))
     industry = _norm(lead.get("industry"))
     allow_excluded = bool((icp or {}).get("allow_excluded_verticals", False))
 
-    # Fewer than 5 employees
+    # ── Hard gate 1: fewer than 5 employees ───────────────────────────────────
     if emp is not None and emp < 5:
         return True, f"Fewer than 5 employees (found: {emp})"
 
-    # Solo operator by employee count
-    if emp == 1:
-        return True, "Solo operator (1 employee)"
-
-    # Solo operator by title
+    # ── Hard gate 2: solo operator ────────────────────────────────────────────
     for kw in SOLO_OPERATOR_KEYWORDS:
         if kw in title:
             return True, f"Solo operator (title: '{lead.get('title')}')"
 
-    # Excluded vertical (unless ICP explicitly allows it)
+    # ── Hard gate 3: excluded vertical ────────────────────────────────────────
     if not allow_excluded:
         for v in AUTO_REJECT_VERTICALS:
             if v in industry:
                 return True, f"Excluded vertical: {v}"
 
-    # No email address
+    # ── Hard gate 4: no email AND Hunter confidence < 70% ─────────────────────
+    # A lead without an email is only rejected when Hunter's confidence is also
+    # below 70% — meaning there is no reliable path to reach them. If Hunter
+    # confidence is ≥70%, the lead is kept and scores lower on data completeness;
+    # the operator decides whether to pursue manual outreach.
     if not lead.get("email"):
-        return True, "No email address found"
+        hunter_confidence = lead.get("hunter_confidence") or 0
+        if hunter_confidence < 70:
+            return True, f"No email found and Hunter confidence too low ({hunter_confidence}%)"
 
     return False, ""
 
@@ -526,8 +542,9 @@ def enrich_lead(lead: dict, icp: dict, config: dict) -> dict:
 def enrich_batch(leads: list[dict], icp: dict, config: dict) -> list[dict]:
     """Enrich a batch of leads.
 
-    Auto-rejected leads are included with icp_score=0 and auto_rejected=1
-    so they appear in the dashboard as rejected (not silently dropped).
+    All leads are returned — nothing is silently dropped:
+    - Hard-gate failures → auto_rejected=1, icp_score=0 (shown as rejected in dashboard)
+    - Low soft scores    → icp_score<40, shown in red/yellow (operator decides)
     """
     enriched: list[dict] = []
     for lead in leads:

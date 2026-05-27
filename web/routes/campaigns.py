@@ -1,15 +1,95 @@
 """Campaign management routes."""
 
 import json
+import logging
 import threading
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
+from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 from core.database import (
     list_campaigns, get_campaign, update_campaign_status,
     get_sequences, campaign_stats, list_leads, insert_campaign,
-    update_campaign_strategy,
+    update_campaign_strategy, get_apollo_credits_used, link_lead_to_campaign,
 )
 
+logger = logging.getLogger(__name__)
 bp = Blueprint("campaigns", __name__)
+
+APOLLO_MONTHLY_LIMIT = 75  # free tier cap; mirrors config default
+
+
+def _apollo_credits_remaining(config: dict) -> int:
+    """Return remaining Apollo credits for this calendar month."""
+    limit = int(config.get("apollo", {}).get("monthly_credit_limit", APOLLO_MONTHLY_LIMIT))
+    used = get_apollo_credits_used()
+    return max(0, limit - used)
+
+
+def _parse_wizard_form(form) -> tuple[dict, list[str]]:
+    """Extract and validate the 6-step wizard form fields.
+
+    Returns (wizard_data, errors).  wizard_data is empty dict on validation failure.
+    """
+    errors = []
+
+    name = form.get("name", "").strip()
+    vertical = form.get("vertical", "").strip()
+    if vertical == "other":
+        vertical = form.get("vertical_custom", "").strip()
+
+    geo_countries = form.getlist("geo_countries")
+    geo_cities = form.get("geo_cities", "").strip()
+
+    try:
+        employees_min = int(form.get("employees_min", 10))
+        employees_max = int(form.get("employees_max", 200))
+    except (TypeError, ValueError):
+        employees_min, employees_max = 10, 200
+
+    multi_location = form.get("multi_location") == "yes"
+    buying_signals = form.getlist("buying_signals")
+    target_titles = form.getlist("target_titles")
+    exclusions = {
+        "small_companies":     form.get("excl_small_cos") == "on",
+        "solo_operators":      form.get("excl_solo_ops") == "on",
+        "regulated_verticals": form.get("excl_regulated") == "on",
+    }
+
+    try:
+        lead_limit = int(form.get("lead_limit", 10))
+        lead_limit = max(1, lead_limit)
+    except (TypeError, ValueError):
+        lead_limit = 10
+
+    if not name:
+        errors.append("Campaign name is required.")
+    if not vertical:
+        errors.append("Vertical is required.")
+    if not geo_countries:
+        errors.append("At least one target country is required.")
+    if not target_titles:
+        errors.append("At least one target title is required.")
+
+    if errors:
+        return {}, errors
+
+    geo_str = ", ".join(geo_countries)
+    if geo_cities:
+        geo_str += f" ({geo_cities})"
+
+    wizard_data = {
+        "vertical":       vertical,
+        "geo_countries":  geo_countries,
+        "geo_cities":     geo_cities,
+        "employees_min":  employees_min,
+        "employees_max":  employees_max,
+        "multi_location": multi_location,
+        "buying_signals": buying_signals,
+        "target_titles":  target_titles,
+        "exclusions":     exclusions,
+        "lead_limit":     lead_limit,
+        "geo_str":        geo_str,
+        "name":           name,
+    }
+    return wizard_data, []
 
 
 @bp.route("/campaigns")
@@ -108,128 +188,182 @@ def send_test(campaign_id: int):
     return redirect(url_for("campaigns.detail", campaign_id=campaign_id))
 
 
-@bp.route("/campaigns/create", methods=["GET", "POST"])
+@bp.route("/api/apollo-credits")
+def apollo_credits():
+    """Return remaining Apollo credits for this calendar month as JSON."""
+    config = current_app.config["VOLLEY_CONFIG"]
+    remaining = _apollo_credits_remaining(config)
+    limit = int(config.get("apollo", {}).get("monthly_credit_limit", APOLLO_MONTHLY_LIMIT))
+    return jsonify({"remaining": remaining, "limit": limit, "used": limit - remaining})
+
+
+@bp.route("/campaigns/find-leads", methods=["POST"])
+def find_leads_route():
+    """Find and score leads from the ICP wizard. No AI copy generated, no Claude cost."""
+    config = current_app.config["VOLLEY_CONFIG"]
+    wizard_data, errors = _parse_wizard_form(request.form)
+
+    if errors:
+        for msg in errors:
+            flash(msg, "error")
+        return render_template("campaign_create.html")
+
+    # Check Apollo credits before proceeding
+    remaining = _apollo_credits_remaining(config)
+    lead_limit = min(wizard_data["lead_limit"], remaining)
+    if remaining <= 0:
+        flash("No Apollo credits remaining this month. Use 'Generate Strategy & Sequence Only' instead.", "error")
+        return render_template("campaign_create.html")
+
+    try:
+        from agents.icp_analyzer import analyze_icp_from_wizard, wizard_to_icp_text
+        from agents.lead_finder import find_leads
+
+        icp_description = wizard_to_icp_text(wizard_data)
+        icp_data = analyze_icp_from_wizard(wizard_data, config)
+
+        campaign_id = insert_campaign({
+            "name":            wizard_data["name"],
+            "icp_description": icp_description,
+            "vertical":        wizard_data["vertical"],
+            "geo":             wizard_data["geo_str"],
+            "strategy_json":   None,
+            "status":          "draft",
+        })
+
+        leads = find_leads(icp_description, config, limit=lead_limit, icp_data=icp_data)
+
+        linked = 0
+        for lead in leads:
+            if lead.get("id"):
+                link_lead_to_campaign(lead["id"], campaign_id)
+                linked += 1
+
+        flash(
+            f"Found {linked} leads for '{wizard_data['name']}'. "
+            f"Generate a sequence when ready to begin outreach.",
+            "success",
+        )
+        return redirect(url_for("campaigns.detail", campaign_id=campaign_id))
+
+    except Exception:
+        logger.exception("Find leads failed")
+        flash("Lead search failed — check the logs for details.", "error")
+        return render_template("campaign_create.html")
+
+
+@bp.route("/campaigns/generate-sequence", methods=["POST"])
+def generate_sequence_route():
+    """Generate ICP strategy + 4-email sequence. No Apollo credits used. ~€0.02 Claude cost."""
+    config = current_app.config["VOLLEY_CONFIG"]
+    wizard_data, errors = _parse_wizard_form(request.form)
+
+    if errors:
+        for msg in errors:
+            flash(msg, "error")
+        return render_template("campaign_create.html")
+
+    try:
+        from agents.icp_analyzer import analyze_icp_from_wizard, wizard_to_icp_text
+        from agents.strategy_generator import generate_strategy
+        from agents.copywriter import generate_sequence
+
+        icp_description = wizard_to_icp_text(wizard_data)
+        icp_data = analyze_icp_from_wizard(wizard_data, config)
+        strategy = generate_strategy(icp_data, wizard_data["name"], config)
+
+        campaign_id = insert_campaign({
+            "name":            wizard_data["name"],
+            "icp_description": icp_description,
+            "vertical":        wizard_data["vertical"],
+            "geo":             wizard_data["geo_str"],
+            "strategy_json":   json.dumps(strategy),
+            "status":          "pending_approval",
+        })
+
+        generate_sequence(campaign_id, strategy, icp_data, config)
+
+        flash(
+            f"Strategy and 4-email sequence generated for '{wizard_data['name']}'. "
+            f"Review and approve to start outreach.",
+            "success",
+        )
+        return redirect(url_for("campaigns.detail", campaign_id=campaign_id))
+
+    except Exception:
+        logger.exception("Generate sequence failed")
+        flash("Sequence generation failed — check the logs for details.", "error")
+        return render_template("campaign_create.html")
+
+
+@bp.route("/campaigns/find-and-generate", methods=["POST"])
+def find_and_generate_route():
+    """Find leads AND generate strategy + sequence in one pass."""
+    config = current_app.config["VOLLEY_CONFIG"]
+    wizard_data, errors = _parse_wizard_form(request.form)
+
+    if errors:
+        for msg in errors:
+            flash(msg, "error")
+        return render_template("campaign_create.html")
+
+    remaining = _apollo_credits_remaining(config)
+    lead_limit = min(wizard_data["lead_limit"], remaining)
+    if remaining <= 0:
+        flash("No Apollo credits remaining this month. Use 'Generate Strategy & Sequence Only' instead.", "error")
+        return render_template("campaign_create.html")
+
+    try:
+        from agents.icp_analyzer import analyze_icp_from_wizard, wizard_to_icp_text
+        from agents.strategy_generator import generate_strategy
+        from agents.copywriter import generate_sequence
+        from agents.lead_finder import find_leads
+
+        icp_description = wizard_to_icp_text(wizard_data)
+        icp_data = analyze_icp_from_wizard(wizard_data, config)
+        strategy = generate_strategy(icp_data, wizard_data["name"], config)
+
+        campaign_id = insert_campaign({
+            "name":            wizard_data["name"],
+            "icp_description": icp_description,
+            "vertical":        wizard_data["vertical"],
+            "geo":             wizard_data["geo_str"],
+            "strategy_json":   json.dumps(strategy),
+            "status":          "pending_approval",
+        })
+
+        generate_sequence(campaign_id, strategy, icp_data, config)
+        leads = find_leads(icp_description, config, limit=lead_limit, icp_data=icp_data)
+
+        linked = 0
+        for lead in leads:
+            if lead.get("id"):
+                link_lead_to_campaign(lead["id"], campaign_id)
+                linked += 1
+
+        flash(
+            f"Campaign '{wizard_data['name']}' ready — {linked} leads found, "
+            f"strategy and sequence generated. Review and approve to start outreach.",
+            "success",
+        )
+        return redirect(url_for("campaigns.detail", campaign_id=campaign_id))
+
+    except Exception:
+        logger.exception("Find-and-generate failed")
+        flash("Campaign creation failed — check the logs for details.", "error")
+        return render_template("campaign_create.html")
+
+
+@bp.route("/campaigns/create", methods=["GET"])
 def create():
+    """Render the 6-step ICP wizard form.
+
+    Form submissions go to one of three independent routes depending on
+    which action button the operator clicks:
+      /campaigns/find-leads          — leads only, no AI copy
+      /campaigns/generate-sequence   — strategy + sequence only, no Apollo
+      /campaigns/find-and-generate   — both in one pass
     """
-    New Campaign — structured 6-step ICP wizard.
-
-    Wizard steps:
-      1. Vertical       — campaign name + industry dropdown
-      2. Geography      — multi-select countries + optional cities
-      3. Company        — employee range sliders + multi-location toggle
-      4. Buying Signals — checkbox signal cards
-      5. Target Titles  — default chips (all pre-checked) + custom additions
-      6. Exclusions     — auto-reject rules (pre-checked, overridable)
-
-    ICP description text is auto-generated from the wizard inputs via
-    wizard_to_icp_text(). Apollo search params are produced by
-    analyze_icp_from_wizard() which calls Claude once per campaign.
-    """
-    if request.method == "POST":
-        # ── Step 1 ─────────────────────────────────────────────────────────
-        name = request.form.get("name", "").strip()
-        vertical = request.form.get("vertical", "").strip()
-        vertical_custom = request.form.get("vertical_custom", "").strip()
-
-        # If user chose "Other", use the custom text field
-        if vertical == "other":
-            vertical = vertical_custom
-
-        # ── Step 2 ─────────────────────────────────────────────────────────
-        geo_countries = request.form.getlist("geo_countries")   # multi-value
-        geo_cities    = request.form.get("geo_cities", "").strip()
-
-        # ── Step 3 ─────────────────────────────────────────────────────────
-        try:
-            employees_min = int(request.form.get("employees_min", 10))
-            employees_max = int(request.form.get("employees_max", 200))
-        except (TypeError, ValueError):
-            employees_min, employees_max = 10, 200
-        multi_location = request.form.get("multi_location") == "yes"
-
-        # ── Step 4 ─────────────────────────────────────────────────────────
-        buying_signals = request.form.getlist("buying_signals")  # multi-value
-
-        # ── Step 5 ─────────────────────────────────────────────────────────
-        target_titles = request.form.getlist("target_titles")    # multi-value
-
-        # ── Step 6 ─────────────────────────────────────────────────────────
-        exclusions = {
-            "small_companies":     request.form.get("excl_small_cos") == "on",
-            "solo_operators":      request.form.get("excl_solo_ops")  == "on",
-            "regulated_verticals": request.form.get("excl_regulated") == "on",
-        }
-
-        # ── Validation ─────────────────────────────────────────────────────
-        errors = []
-        if not name:
-            errors.append("Campaign name is required.")
-        if not vertical:
-            errors.append("Vertical is required.")
-        if not geo_countries:
-            errors.append("At least one target country is required.")
-        if not target_titles:
-            errors.append("At least one target title is required.")
-
-        if errors:
-            for msg in errors:
-                flash(msg, "error")
-            return render_template("campaign_create.html")
-
-        # ── Bundle wizard data ──────────────────────────────────────────────
-        wizard_data = {
-            "vertical":      vertical,
-            "geo_countries": geo_countries,
-            "geo_cities":    geo_cities,
-            "employees_min": employees_min,
-            "employees_max": employees_max,
-            "multi_location": multi_location,
-            "buying_signals": buying_signals,
-            "target_titles":  target_titles,
-            "exclusions":     exclusions,
-        }
-
-        # Compact geo string for campaigns.geo column
-        geo_str = ", ".join(geo_countries)
-        if geo_cities:
-            geo_str += f" ({geo_cities})"
-
-        config = current_app.config["VOLLEY_CONFIG"]
-
-        try:
-            from agents.icp_analyzer import analyze_icp_from_wizard, wizard_to_icp_text
-            from agents.strategy_generator import generate_strategy
-            from agents.copywriter import generate_sequence
-
-            # Auto-generate the ICP description text from wizard inputs
-            icp_description = wizard_to_icp_text(wizard_data)
-
-            # Get structured Apollo params via Claude
-            icp_data = analyze_icp_from_wizard(wizard_data, config)
-
-            # Generate outreach strategy
-            strategy = generate_strategy(icp_data, name, config)
-
-            # Persist campaign
-            campaign_id = insert_campaign({
-                "name":            name,
-                "icp_description": icp_description,
-                "vertical":        vertical,
-                "geo":             geo_str,
-                "strategy_json":   json.dumps(strategy),
-                "status":          "pending_approval",
-            })
-
-            # Generate 4-email sequence
-            generate_sequence(campaign_id, strategy, icp_data, config)
-
-            flash(f"Campaign '{name}' created and ready for approval.", "success")
-            return redirect(url_for("campaigns.detail", campaign_id=campaign_id))
-
-        except Exception as e:
-            import logging
-            logging.getLogger(__name__).exception("Campaign creation failed")
-            flash(f"Campaign creation failed: {e}", "error")
-            return render_template("campaign_create.html")
-
-    return render_template("campaign_create.html")
+    config = current_app.config["VOLLEY_CONFIG"]
+    apollo_remaining = _apollo_credits_remaining(config)
+    return render_template("campaign_create.html", apollo_remaining=apollo_remaining)

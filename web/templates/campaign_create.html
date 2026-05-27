@@ -84,6 +84,38 @@
   .step-hint  { font-size: 0.83rem; color: var(--muted); margin-bottom: 20px; }
   .wizard-step { display: none; }
   .wizard-step.active { display: block; }
+
+  /* Lead limit input */
+  .lead-limit-block {
+    background: #f8faff; border: 1px solid #d0e0ff; border-radius: 8px;
+    padding: 14px 16px; margin-bottom: 16px;
+  }
+  .lead-limit-block .ll-row { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
+  .lead-limit-block label { font-size: 0.875rem; font-weight: 600; white-space: nowrap; }
+  .lead-limit-block input[type=number] { width: 80px; }
+  .lead-limit-block .ll-hint { font-size: 0.78rem; color: var(--muted); }
+  .lead-limit-block .ll-hint.credits-low { color: var(--red); font-weight: 600; }
+
+  /* No-credits warning */
+  .no-credits-warning {
+    background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px;
+    padding: 10px 14px; font-size: 0.82rem; color: #9a3412; margin-bottom: 14px;
+    display: none;
+  }
+
+  /* Action cards */
+  .action-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 4px; }
+  .action-card {
+    padding: 16px 14px; border: 1.5px solid var(--border); border-radius: 10px;
+    cursor: pointer; text-align: left; width: 100%; background: #fff;
+    transition: border-color 0.15s, background 0.15s, opacity 0.15s;
+    display: flex; flex-direction: column;
+  }
+  .action-card:hover:not([disabled]) { border-color: var(--accent); background: #f5f9ff; }
+  .action-card[disabled] { opacity: 0.42; cursor: not-allowed; pointer-events: none; }
+  .action-card .ac-title { font-size: 0.88rem; font-weight: 700; margin-bottom: 5px; }
+  .action-card .ac-desc  { font-size: 0.78rem; color: var(--muted); line-height: 1.45; flex: 1; }
+  .action-card .ac-cost  { font-size: 0.74rem; color: var(--accent); margin-top: 8px; font-weight: 600; }
 </style>
 
 <div class="topbar">
@@ -447,11 +479,12 @@
       </div><!-- /step-5 -->
 
 
-      <!-- ── Step 6: Exclusions & Review ── -->
+      <!-- ── Step 6: Exclusions, Summary & Actions ── -->
       <div id="step-6" class="wizard-step">
-        <div class="step-title">Red flag exclusions</div>
-        <div class="step-hint">These leads are auto-rejected. Uncheck to override a rule for this campaign.</div>
+        <div class="step-title">Review &amp; launch</div>
+        <div class="step-hint">Confirm exclusion rules, check the summary, then choose what to run.</div>
 
+        <!-- Exclusion checkboxes -->
         <div style="margin-bottom:20px;">
           <div class="excl-item">
             <input type="checkbox" id="excl_small_cos" name="excl_small_cos" value="on" checked>
@@ -460,7 +493,6 @@
               <div class="excl-desc">Micro-businesses rarely have budget for third-party lead generation.</div>
             </div>
           </div>
-
           <div class="excl-item">
             <input type="checkbox" id="excl_solo_ops" name="excl_solo_ops" value="on" checked>
             <div class="excl-item-body">
@@ -468,7 +500,6 @@
               <div class="excl-desc">Sole traders and freelancers rarely buy lead volume at scale.</div>
             </div>
           </div>
-
           <div class="excl-item">
             <input type="checkbox" id="excl_regulated" name="excl_regulated" value="on" checked>
             <div class="excl-item-body">
@@ -490,9 +521,53 @@
           <div class="sum-row"><span class="sum-lbl">Titles</span><span id="sum-titles">—</span></div>
         </div>
 
-        <div style="background:#fffbeb; border:1px solid #fde68a; border-radius:8px; padding:12px; font-size:0.83rem; color:#92400e; margin-bottom:16px;">
-          ⏱ Takes ~30 seconds — Claude generates the strategy and 4-email sequence automatically.
+        <!-- Lead limit + credits (shown for find-related actions) -->
+        <div id="credits-warning" class="no-credits-warning">
+          ⚠️ You have <strong>0 Apollo credits</strong> remaining this month. Lead finding is unavailable until the monthly counter resets. Use <em>Generate Strategy &amp; Sequence Only</em> in the meantime.
         </div>
+
+        <div class="lead-limit-block">
+          <div class="ll-row">
+            <label for="lead_limit">Lead limit</label>
+            <input type="number" id="lead_limit" name="lead_limit"
+              value="10" min="1" max="{{ apollo_remaining if apollo_remaining else 75 }}">
+            <span class="ll-hint" id="credits-hint">
+              {%- if apollo_remaining is defined -%}
+                {{ apollo_remaining }} Apollo credit{{ 's' if apollo_remaining != 1 }} remaining this month
+              {%- else -%}
+                Loading credits…
+              {%- endif -%}
+            </span>
+          </div>
+          <div style="font-size:0.75rem; color:var(--muted); margin-top:6px;">
+            Used by <em>Find Leads Only</em> and <em>Do Both</em>. Ignored for sequence-only generation.
+          </div>
+        </div>
+
+        <!-- Three action cards -->
+        <div class="action-cards">
+          <button type="button" id="btn-find-leads" class="action-card"
+            onclick="submitAs('/campaigns/find-leads')">
+            <div class="ac-title">Find Leads Only</div>
+            <div class="ac-desc">Searches Apollo, Hunter, and Google Maps. Scores and adds leads to the CRM. No emails generated.</div>
+            <div class="ac-cost" id="cost-find-leads">Uses <span id="credits-display-1">–</span> Apollo credits &middot; no Claude cost</div>
+          </button>
+
+          <button type="button" class="action-card"
+            onclick="submitAs('/campaigns/generate-sequence')">
+            <div class="ac-title">Generate Strategy &amp; Sequence Only</div>
+            <div class="ac-desc">AI outreach strategy + full 4-email sequence from your wizard inputs. No leads fetched, no Apollo credits used.</div>
+            <div class="ac-cost">0 Apollo credits &middot; ~€0.02 Claude cost</div>
+          </button>
+
+          <button type="button" id="btn-do-both" class="action-card"
+            onclick="submitAs('/campaigns/find-and-generate')">
+            <div class="ac-title">Do Both</div>
+            <div class="ac-desc">Finds and scores leads, then generates the strategy and full 4-email sequence in one go.</div>
+            <div class="ac-cost" id="cost-do-both">Uses <span id="credits-display-2">–</span> Apollo credits &middot; ~€0.02 Claude cost</div>
+          </button>
+        </div>
+
       </div><!-- /step-6 -->
 
 
@@ -503,12 +578,7 @@
 
         <div style="font-size:0.78rem; color:var(--muted);" id="step-counter">Step 1 of 6</div>
 
-        <div style="display:flex; gap:10px;">
-          <button type="button" id="btn-next" onclick="wizardNext()" class="btn btn-primary">Next →</button>
-          <button type="submit" id="btn-submit" class="btn btn-primary" style="display:none;">
-            Generate Strategy &amp; Sequence
-          </button>
-        </div>
+        <button type="button" id="btn-next" onclick="wizardNext()" class="btn btn-primary">Next →</button>
       </div>
 
     </div><!-- /card -->
@@ -518,7 +588,7 @@
 <script>
 let step = 1;
 const TOTAL = 6;
-const LABELS = ['Vertical', 'Geography', 'Company', 'Signals', 'Titles', 'Exclusions'];
+const LABELS = ['Vertical', 'Geography', 'Company', 'Signals', 'Titles', 'Review'];
 
 /* ─── Navigation ─── */
 function wizardNext() {
@@ -538,10 +608,9 @@ function showStep(n) {
   step = n;
   document.getElementById('step-' + step).classList.add('active');
   updateIndicator();
-  document.getElementById('btn-back').style.visibility  = step > 1 ? 'visible' : 'hidden';
-  document.getElementById('btn-next').style.display     = step < TOTAL ? '' : 'none';
-  document.getElementById('btn-submit').style.display   = step === TOTAL ? '' : 'none';
-  document.getElementById('step-counter').textContent   = 'Step ' + step + ' of ' + TOTAL;
+  document.getElementById('btn-back').style.visibility = step > 1 ? 'visible' : 'hidden';
+  document.getElementById('btn-next').style.display    = step < TOTAL ? '' : 'none';
+  document.getElementById('step-counter').textContent  = 'Step ' + step + ' of ' + TOTAL;
 }
 
 function updateIndicator() {
@@ -632,42 +701,102 @@ function addCustomTitle() {
 
 /* ─── Summary population (Step 6) ─── */
 function populateSummary() {
-  // Name
   document.getElementById('sum-name').textContent =
     document.getElementById('name').value.trim() || '—';
 
-  // Vertical
   const vSel = document.getElementById('vertical');
   const vCustom = document.getElementById('vertical_custom').value.trim();
   document.getElementById('sum-vertical').textContent =
     vSel.value === 'other' ? vCustom : (vSel.options[vSel.selectedIndex]?.text || '—');
 
-  // Geography
   const countries = [...document.querySelectorAll('input[name="geo_countries"]:checked')]
     .map(c => c.value);
   const cities = document.getElementById('geo_cities').value.trim();
   document.getElementById('sum-geo').textContent =
     countries.length ? countries.join(', ') + (cities ? ' (' + cities + ')' : '') : '—';
 
-  // Company size
   const empMin = document.getElementById('employees_min').value;
   const empMax = document.getElementById('employees_max').value;
   document.getElementById('sum-size').textContent = empMin + '–' + empMax + ' employees';
 
-  // Multi-location
   document.getElementById('sum-multiloc').textContent =
     document.getElementById('multi_location').checked ? 'Yes — multi-location targeted' : 'No preference';
 
-  // Buying signals
   const sigs = [...document.querySelectorAll('input[name="buying_signals"]:checked')]
     .map(s => s.value.replace(/_/g, ' '));
   document.getElementById('sum-signals').textContent = sigs.length ? sigs.join(', ') : 'None selected';
 
-  // Titles
   const titles = [...document.querySelectorAll('input[name="target_titles"]:checked')]
     .map(t => t.value);
   document.getElementById('sum-titles').textContent =
-    titles.length ? titles.slice(0, 5).join(', ') + (titles.length > 5 ? ' +' + (titles.length - 5) + ' more' : '') : '—';
+    titles.length
+      ? titles.slice(0, 5).join(', ') + (titles.length > 5 ? ' +' + (titles.length - 5) + ' more' : '')
+      : '—';
+
+  loadCredits();
+}
+
+/* ─── Apollo credits loader ─── */
+function loadCredits() {
+  fetch('/api/apollo-credits')
+    .then(r => r.json())
+    .then(data => {
+      const remaining = data.remaining;
+      const limit     = data.limit;
+
+      // Update lead limit input max
+      const limitInput = document.getElementById('lead_limit');
+      limitInput.max = remaining;
+      if (parseInt(limitInput.value) > remaining) {
+        limitInput.value = Math.max(1, remaining);
+      }
+
+      // Update hint text
+      const hint = document.getElementById('credits-hint');
+      hint.textContent = remaining + ' of ' + limit + ' Apollo credits remaining this month';
+      hint.className = 'll-hint' + (remaining < 10 ? ' credits-low' : '');
+
+      // Update cost labels on action cards
+      const lv = parseInt(limitInput.value) || 10;
+      document.getElementById('credits-display-1').textContent = lv;
+      document.getElementById('credits-display-2').textContent = lv;
+
+      // Show warning and disable find-related buttons if 0 credits
+      const warn = document.getElementById('credits-warning');
+      const btnFind   = document.getElementById('btn-find-leads');
+      const btnBoth   = document.getElementById('btn-do-both');
+      if (remaining <= 0) {
+        warn.style.display = 'block';
+        btnFind.setAttribute('disabled', 'disabled');
+        btnBoth.setAttribute('disabled', 'disabled');
+      } else {
+        warn.style.display = 'none';
+        btnFind.removeAttribute('disabled');
+        btnBoth.removeAttribute('disabled');
+      }
+    })
+    .catch(() => {
+      document.getElementById('credits-hint').textContent = 'Could not load credit count';
+    });
+}
+
+/* Keep cost labels in sync as the lead limit input changes */
+document.addEventListener('DOMContentLoaded', function() {
+  const limitInput = document.getElementById('lead_limit');
+  if (limitInput) {
+    limitInput.addEventListener('input', function() {
+      const v = parseInt(this.value) || 0;
+      document.getElementById('credits-display-1').textContent = v;
+      document.getElementById('credits-display-2').textContent = v;
+    });
+  }
+});
+
+/* ─── Form submission — set action URL then submit ─── */
+function submitAs(actionUrl) {
+  const form = document.getElementById('wizard-form');
+  form.action = actionUrl;
+  form.submit();
 }
 
 /* ─── Handle toggle track clicks (visual sync) ─── */

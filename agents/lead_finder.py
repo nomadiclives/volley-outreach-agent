@@ -1,4 +1,18 @@
-"""Multi-source lead discovery orchestration."""
+"""Multi-source lead discovery orchestration.
+
+Filtering philosophy:
+  Source APIs (Apollo, Hunter, Maps) accept ICP wizard inputs as search hints
+  to focus queries and conserve credits — this is query optimisation, not
+  hard exclusion. Every lead returned by a source is passed to enrich_batch
+  without any post-fetch filtering.
+
+  Hard gates and soft scoring both live entirely in lead_enricher.py:
+    Hard gates  → auto_rejected=1  (4 criteria only — see lead_enricher.py)
+    Soft scoring → icp_score 0–100 (low scores appear in yellow/red in the CRM)
+
+  A lead with no ad-spend signal, single location, or partial title match
+  is NEVER dropped here — it scores lower and the operator decides.
+"""
 
 import logging
 from agents.icp_analyzer import analyze_icp
@@ -15,18 +29,26 @@ def find_leads(
     config: dict,
     limit: int = 50,
     dry_run: bool = False,
+    icp_data: dict = None,
 ) -> list[dict]:
     """
     Orchestrate multi-source lead discovery.
     Source waterfall: Apollo → Hunter → Google Maps → LinkedIn
 
+    Pass icp_data if the ICP has already been analysed (e.g. from the wizard
+    route) to skip the Claude analyze_icp call and avoid a redundant API cost.
+
     Returns list of saved leads.
     """
     logger.info("Starting lead find: limit=%d dry_run=%s", limit, dry_run)
 
-    # 1. Parse ICP
-    icp = analyze_icp(icp_description, config)
-    logger.info("ICP parsed: %s", icp.get("icp_rationale", "")[:100])
+    # 1. Parse ICP — skip if caller already resolved it via the wizard path
+    if icp_data is not None:
+        icp = icp_data
+        logger.info("ICP provided by caller, skipping analyze_icp call")
+    else:
+        icp = analyze_icp(icp_description, config)
+        logger.info("ICP parsed: %s", icp.get("icp_rationale", "")[:100])
 
     all_leads: list[dict] = []
 
@@ -81,7 +103,8 @@ def find_leads(
     unique = deduplicate_batch(all_leads)
     logger.info("After dedup: %d leads", len(unique))
 
-    # Enrich & score (limit API calls)
+    # Enrich & score — ALL leads go through; hard gates and soft scoring
+    # happen inside enrich_batch, not here. Nothing is filtered pre-enrichment.
     to_enrich = unique[:limit]
     enriched = enrich_batch(to_enrich, icp, config)
 

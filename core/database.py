@@ -518,6 +518,40 @@ def log_api_usage(provider: str, model: str, purpose: str,
         )
 
 
+def get_apollo_credits_used() -> int:
+    """Return total Apollo credits consumed in the current calendar month.
+
+    Apollo logs each search result as input_tokens=1 with provider='apollo'.
+    """
+    with db() as conn:
+        row = conn.execute(
+            """SELECT COALESCE(SUM(input_tokens), 0) FROM api_usage
+               WHERE provider = 'apollo'
+               AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')"""
+        ).fetchone()
+        return int(row[0])
+
+
+def link_lead_to_campaign(lead_id: int, campaign_id: int):
+    """Create a placeholder outreach_log row linking a found lead to a campaign.
+
+    Used when leads are found before a sequence exists. The row carries
+    status='found' and no scheduled_at — the scheduler only acts on
+    send_queue rows, so this placeholder is never picked up for sending.
+    Idempotent: silently skips if the pair already exists.
+    """
+    with db() as conn:
+        exists = conn.execute(
+            "SELECT 1 FROM outreach_log WHERE lead_id = ? AND campaign_id = ?",
+            (lead_id, campaign_id),
+        ).fetchone()
+        if not exists:
+            conn.execute(
+                "INSERT INTO outreach_log (lead_id, campaign_id, status) VALUES (?, ?, 'found')",
+                (lead_id, campaign_id),
+            )
+
+
 def get_monthly_claude_cost() -> float:
     with db() as conn:
         row = conn.execute(

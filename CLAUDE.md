@@ -59,8 +59,8 @@ volley/
 │   └── reply_analyzer.py      # Thread reconstruction + human vs automated classification
 │
 ├── integrations/
-│   ├── apollo.py              # Apollo.io API — 50 credit/month hard stop
-│   ├── hunter.py              # Hunter.io API — 25 search/month hard stop
+│   ├── apollo.py              # Apollo.io API — 75 credit/month hard stop
+│   ├── hunter.py              # Hunter.io API — 50 search/month hard stop
 │   ├── google_sheets.py       # Bidirectional CRM sync
 │   ├── gmail_smtp.py          # Email sending — daily limit enforced
 │   ├── instantly.py           # Warmup only — free trial, switches off via config flag
@@ -160,8 +160,33 @@ The "New Campaign" form is a **6-step structured wizard**. No free-text ICP desc
 **Step 4 — Buying Signals:** checkboxes — running ads, lead forms, TCPA language, call centre, dedicated marketing roles, high-LTV vertical, affiliate program
 **Step 5 — Target Titles:** pre-populated defaults (editable):
   Marketing Manager, Head of Marketing, VP Marketing, Director of Marketing, Affiliate Manager, Partnerships Manager, Media Buyer, Head of Growth, CMO, CEO (≤50 employees), Founder (≤50 employees)
-**Step 6 — Red Flag Exclusions:** shown for transparency, overridable:
-  <5 employees, solo operators, ACA/Medicare/car insurance verticals
+**Step 6 — Red Flag Exclusions + Summary + Action Selection:**
+  - Exclusion checkboxes (overridable): <5 employees, solo operators, ACA/Medicare/car insurance
+  - Campaign summary panel showing all wizard selections
+  - **Lead limit input** (shown when Find Leads is selected): default 10, max capped at remaining Apollo credits (read from api_usage table), with credit remaining shown as helper text
+  - **Three action buttons** — user must pick one:
+    - **Find Leads Only** — runs Apollo/Hunter/Maps search, scores leads, adds to CRM. No AI copy. No Claude API cost.
+    - **Generate Strategy & Sequence Only** — generates outreach strategy + 4 emails using wizard inputs. No Apollo credits used. ~€0.02 Claude cost.
+    - **Do Both** — finds leads AND generates strategy + sequence in one go.
+
+### Filter logic — hard gates vs soft scoring
+
+**Hard gates (always exclude, not configurable per lead):**
+- Employee count < 5
+- Solo operator
+- Red flag verticals (unless unchecked in Step 6)
+- Hunter email confidence < 70% with no verified email
+
+**Soft scoring (affects score, never excludes):**
+- Buying signals (running ads, lead forms, TCPA, etc.)
+- Multi-location preference
+- Title match quality
+- High-LTV vertical
+- Data completeness
+
+A lead that doesn't match soft criteria still appears — it scores lower (e.g. 45/100) and appears in yellow. The operator decides whether to approve it. Hard gates are the only true exclusions.
+
+This means: a solar company with no detected ads scores 55 and shows up in yellow. A solar company running Meta ads scores 85 and shows up in green. Both are visible. The operator decides.
 
 ---
 
@@ -397,10 +422,35 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 
 ## Pending Tasks (as of last session)
 
-### Immediate — implement via Claude Code
-1. **DB migration:** run `scripts/migrate_lead_scores.py` to add scoring columns to existing leads table
-2. **Lead scorer:** update `agents/lead_enricher.py` with weighted 100-point framework
-3. **ICP wizard:** replace free-text field in New Campaign flow with 6-step structured wizard
+### Completed ✅
+- DB migration (`scripts/migrate_lead_scores.py`) — all scoring columns added
+- Lead scorer (`agents/lead_enricher.py`) — weighted 100-point framework implemented
+- ICP wizard — 6-step structured wizard built and working
+
+### Immediate — implement via Claude Code (next session)
+
+**Change A — Soft vs hard filter logic**
+Update `agents/lead_finder.py` and `agents/lead_enricher.py` so that only hard gates exclude leads (employee <5, solo operator, red flag verticals, unverifiable email). All other wizard selections (buying signals, multi-location, title match) affect the score only — never exclude. A lead scoring 45 should appear in yellow, not be filtered out.
+
+Files: `agents/lead_finder.py`, `agents/lead_enricher.py`
+
+**Change B — Lead limit input on Step 6**
+Add a numeric input to the Step 6 wizard screen (visible when "Find Leads Only" or "Do Both" is selected). Default: 10. Maximum: remaining Apollo credits (calculated from api_usage table: 75 minus credits used this month). Show remaining credits as helper text next to the input.
+
+Files: `web/templates/campaigns.html`, `web/routes/campaigns.py`
+
+**Change C — Three action buttons on Step 6**
+Replace the single "Generate Strategy & Sequence" button with three clearly labelled action buttons:
+- **Find Leads Only** → triggers `/campaigns/find-leads` route
+- **Generate Strategy & Sequence Only** → triggers `/campaigns/generate-sequence` route  
+- **Do Both** → triggers `/campaigns/find-and-generate` route
+
+Each button should have a one-line description underneath it explaining what it does and what it costs (credits/API). Each route must work fully independently.
+
+Files: `web/templates/campaigns.html`, `web/routes/campaigns.py`, `main.py`
+
+### Claude Code prompt to use (run all three as one instruction):
+> "Make three changes to the ICP wizard Step 6 and the campaign routes. First: update lead_finder.py and lead_enricher.py so that only hard gates exclude leads (employee count <5, solo operators, red flag verticals, Hunter confidence <70% with no verified email) — all other wizard selections affect score only, never filter out leads. Second: add a lead limit numeric input to Step 6 (default 10, max = remaining Apollo credits from api_usage table, show credits remaining as helper text) that appears when Find Leads Only or Do Both is selected. Third: replace the single Generate Strategy & Sequence button with three action buttons — Find Leads Only, Generate Strategy & Sequence Only, and Do Both — each with a one-line description and cost note, each triggering a separate backend route that works fully independently."
 
 ### Pending setup (not blocking code work)
 - Buy outreach domain (~€10) — needed before any emails can send
@@ -410,7 +460,7 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 - Run `python scripts/dns_checker.py --domain yourdomain.com`
 
 ### Open decisions
-- Final brand/domain name (ProspectCore GbR still dissolving — use new name)
+- Final brand/domain name (ProspectCore GbR dissolution in progress — partners consulted, awaiting one response)
 - Einstiegsgeld meeting in ~10 days — do NOT register Gewerbe before then
 
 ---
