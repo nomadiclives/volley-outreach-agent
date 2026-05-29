@@ -524,18 +524,25 @@ def log_api_usage(provider: str, model: str, purpose: str,
         )
 
 
-def get_apollo_credits_used() -> int:
-    """Return total Apollo credits consumed in the current calendar month.
+def get_monthly_api_credits(provider: str) -> int:
+    """Return credits/searches consumed by a provider in the current calendar month.
 
-    Apollo logs each search result as input_tokens=1 with provider='apollo'.
+    Convention: each API call logs input_tokens = number of credits consumed
+    (1 per lead for Apollo; 1 per search call for Hunter).
     """
     with db() as conn:
         row = conn.execute(
             """SELECT COALESCE(SUM(input_tokens), 0) FROM api_usage
-               WHERE provider = 'apollo'
-               AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')"""
+               WHERE provider = ?
+               AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')""",
+            (provider,),
         ).fetchone()
         return int(row[0])
+
+
+def get_apollo_credits_used() -> int:
+    """Return total Apollo credits consumed in the current calendar month."""
+    return get_monthly_api_credits("apollo")
 
 
 def link_lead_to_campaign(lead_id: int, campaign_id: int):
