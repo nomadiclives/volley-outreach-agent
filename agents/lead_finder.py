@@ -14,8 +14,10 @@ Filtering philosophy:
   is NEVER dropped here — it scores lower and the operator decides.
 """
 
+import json
 import logging
 from agents.icp_analyzer import analyze_icp
+from agents.buying_signal_checker import check_buying_signals
 from agents.lead_enricher import enrich_batch
 from core.deduplicator import deduplicate_batch
 from core.database import insert_lead
@@ -103,9 +105,24 @@ def find_leads(
     unique = deduplicate_batch(all_leads)
     logger.info("After dedup: %d leads", len(unique))
 
+    to_enrich = unique[:limit]
+
+    # Check buying signals for each lead before scoring so _score_ad_spend()
+    # and _score_multi_location() in lead_enricher have populated data to read.
+    logger.info("Checking buying signals for %d leads", len(to_enrich))
+    for lead in to_enrich:
+        try:
+            signals = check_buying_signals(lead)
+            lead["buying_signals"] = json.dumps(signals)
+        except Exception as exc:
+            logger.warning(
+                "Buying signal check failed for %s: %s",
+                lead.get("domain") or lead.get("company_name"),
+                exc,
+            )
+
     # Enrich & score — ALL leads go through; hard gates and soft scoring
     # happen inside enrich_batch, not here. Nothing is filtered pre-enrichment.
-    to_enrich = unique[:limit]
     enriched = enrich_batch(to_enrich, icp, config)
 
     if dry_run:

@@ -8,9 +8,18 @@ Supports two entry points:
 
 import json
 import logging
+import re
 from agents.claude_client import claude_call
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_fences(text: str) -> str:
+    """Remove markdown code fences that Claude sometimes wraps JSON in."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
 
 # ── Shared output schema prompt ────────────────────────────────────────────────
 _OUTPUT_SCHEMA = """
@@ -61,7 +70,7 @@ def analyze_icp(icp_description: str, config: dict) -> dict:
     )
 
     try:
-        result = json.loads(raw.strip())
+        result = json.loads(_strip_fences(raw))
         logger.info(
             "ICP analysis (free-text): %d verticals, %d title types, locations=%s",
             len(result.get("verticals", [])),
@@ -146,7 +155,7 @@ Generate the Apollo search parameters and strategic context."""
     )
 
     try:
-        result = json.loads(raw.strip())
+        result = json.loads(_strip_fences(raw))
         logger.info(
             "ICP analysis (wizard): %d verticals, %d title types, locations=%s",
             len(result.get("verticals", [])),
