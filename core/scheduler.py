@@ -146,6 +146,17 @@ def schedule_sequence_for_lead(lead_id: int, campaign_id: int, config: dict):
 
     for seq in sequences:
         scheduled = base_time + timedelta(days=seq["delay_days"])
+        weekday = scheduled.weekday()
+        if weekday >= 5:  # 5=Saturday, 6=Sunday
+            days_to_monday = 7 - weekday
+            original = scheduled
+            scheduled = scheduled + timedelta(days=days_to_monday)
+            logger.info(
+                "Cadence adjusted: step %d moved from %s to %s to avoid weekend send",
+                seq["step_number"],
+                original.strftime("%Y-%m-%d"),
+                scheduled.strftime("%Y-%m-%d"),
+            )
         enqueue_send({
             "lead_id": lead_id,
             "campaign_id": campaign_id,
