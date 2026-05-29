@@ -91,7 +91,7 @@ volley/
 ├── core/
 │   ├── database.py            # SQLite schema + all CRUD
 │   ├── deduplicator.py        # PRE-SEARCH dedup — checks DB before spending credits
-│   ├── credit_manager.py      # Cross-source credit tracking + budget allocation
+│   ├── credit_manager.py      # Centralised credit gate for ALL sources — check_and_spend(provider) method
 │   ├── email_validator.py     # MX check + format validation
 │   ├── scheduler.py           # Background send engine — resumes from SQLite on restart
 │   └── reply_handler.py       # CRITICAL: human reply → immediate sequence cancellation
@@ -141,10 +141,17 @@ Every Claude call must use the wrapper in `agents/claude_client.py`. It:
 ### 3. Every Email Logged Before Sending
 Log to `outreach_log` BEFORE the SMTP call. If the process crashes mid-send, no duplicate sends on restart.
 
-### 4. API Credit Hard Stops
-- Apollo: hard stop at `apollo.monthly_credit_limit` (default 75)
-- Hunter: hard stop at `hunter.monthly_search_limit` (default 50)
-- Both tracked in `api_usage` table, checked before every call
+### 4. API Credit Hard Stops — All Sources
+Every integration must call `core/credit_manager.check_and_spend(provider)` before every API call. This is the single credit gate for all sources — never implement per-integration credit checks independently.
+
+Current limits (never change without confirming with operator):
+- Apollo: **75**/month
+- Hunter: **50**/month
+- Lusha: 40/month
+- Snov.io: 50/month
+- GetProspect: 50/month
+
+`check_and_spend()` checks remaining credits against the monthly limit in config, raises `CreditLimitReached` if hit, logs the spend to `api_usage` on success.
 
 ### 5. Unsubscribe Is Absolute
 Any reply containing "unsubscribe", "remove me", "stop emailing", "opt out" → immediately cancel all scheduled steps, mark lead as `unsubscribed`, never contact again. This cannot be reversed by the operator.
@@ -461,8 +468,8 @@ lusha:
   monthly_credit_limit: 40
 
 snov:
-  client_id: ""
-  client_secret: ""
+  user_id: ""
+  api_secret: ""
   monthly_credit_limit: 50
 
 getprospect:
