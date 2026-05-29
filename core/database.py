@@ -64,7 +64,8 @@ CREATE TABLE IF NOT EXISTS sequences (
     step_number INTEGER NOT NULL,
     subject TEXT NOT NULL,
     body_text TEXT NOT NULL,
-    delay_days INTEGER NOT NULL
+    delay_days INTEGER NOT NULL,
+    spam_warning INTEGER DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS outreach_log (
@@ -140,9 +141,14 @@ def db():
 
 
 def init_db():
-    """Create tables if they don't exist."""
+    """Create tables if they don't exist. Applies additive column migrations."""
     with db() as conn:
         conn.executescript(SCHEMA)
+        # Additive migrations — safe to run on existing DBs (silently no-ops if column exists)
+        try:
+            conn.execute("ALTER TABLE sequences ADD COLUMN spam_warning INTEGER DEFAULT 0")
+        except Exception:
+            pass
     logger.info("Database initialised at %s", DB_PATH)
 
 
@@ -337,11 +343,11 @@ def update_campaign_strategy(campaign_id: int, strategy_json: str):
 
 def insert_sequence_step(step: dict) -> int:
     sql = """
-        INSERT INTO sequences (campaign_id, step_number, subject, body_text, delay_days)
-        VALUES (:campaign_id, :step_number, :subject, :body_text, :delay_days)
+        INSERT INTO sequences (campaign_id, step_number, subject, body_text, delay_days, spam_warning)
+        VALUES (:campaign_id, :step_number, :subject, :body_text, :delay_days, :spam_warning)
     """
     with db() as conn:
-        cur = conn.execute(sql, step)
+        cur = conn.execute(sql, {**step, "spam_warning": step.get("spam_warning", 0)})
         return cur.lastrowid
 
 
