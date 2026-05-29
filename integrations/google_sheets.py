@@ -194,6 +194,8 @@ def sync_lead(lead: dict):
         logger.debug("Sheets not configured — skipping sync_lead")
         return
 
+    _ensure_leads_tab()
+
     email = (lead.get("email") or "").strip().lower()
     row = _lead_to_row(lead)
 
@@ -229,6 +231,11 @@ def bulk_sync_leads(leads: list[dict]):
         logger.debug("Sheets not configured — skipping bulk_sync_leads")
         return
 
+    if not leads:
+        logger.debug("bulk_sync_leads: nothing to sync")
+        return
+
+    _ensure_leads_tab()
     email_index = _build_email_index()
     updates: list[tuple[int, list]] = []
     to_append: list[list] = []
@@ -286,11 +293,36 @@ def sync_lead_status(lead_id: int, status: str):
     logger.warning("Could not find row for lead %d in Sheets", lead_id)
 
 
-def ensure_headers():
-    """Write header row to the Leads tab if the sheet is empty."""
+def _ensure_leads_tab():
+    """Create the Leads tab and write headers if it doesn't exist yet.
+
+    Called automatically by sync_lead and bulk_sync_leads so the sheet is
+    always ready to receive data without any manual setup.
+    """
     svc = _get_service()
     if not svc or not _spreadsheet_id:
         return
+
+    # Check whether the tab already exists
+    try:
+        meta = svc.spreadsheets().get(spreadsheetId=_spreadsheet_id).execute()
+        existing_titles = {s["properties"]["title"] for s in meta.get("sheets", [])}
+    except Exception as e:
+        logger.error("Could not read spreadsheet metadata: %s", e)
+        return
+
+    if TAB_LEADS not in existing_titles:
+        try:
+            svc.spreadsheets().batchUpdate(
+                spreadsheetId=_spreadsheet_id,
+                body={"requests": [{"addSheet": {"properties": {"title": TAB_LEADS}}}]},
+            ).execute()
+            logger.info("Created '%s' tab in Google Sheets", TAB_LEADS)
+        except Exception as e:
+            logger.error("Could not create '%s' tab: %s", TAB_LEADS, e)
+            return
+
+    # Write header row if A1 is empty
     try:
         result = svc.spreadsheets().values().get(
             spreadsheetId=_spreadsheet_id,
@@ -298,6 +330,11 @@ def ensure_headers():
         ).execute()
         if not result.get("values"):
             _append_rows(TAB_LEADS, [LEADS_HEADERS])
-            logger.info("Wrote Sheets headers")
+            logger.info("Wrote headers to '%s' tab", TAB_LEADS)
     except Exception as e:
-        logger.error("Could not check/write Sheets headers: %s", e)
+        logger.error("Could not write headers to '%s': %s", TAB_LEADS, e)
+
+
+def ensure_headers():
+    """Public alias for _ensure_leads_tab — kept for backward compatibility."""
+    _ensure_leads_tab()
