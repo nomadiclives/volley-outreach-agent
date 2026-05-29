@@ -231,6 +231,29 @@ def get_lead_by_email(email: str) -> Optional[dict]:
         return dict(row) if row else None
 
 
+def get_lead_by_company_contact(
+    company_name: str, first_name: str, last_name: str
+) -> Optional[dict]:
+    """Level 2 dedup — return existing lead matching company+first+last name, or None."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM leads WHERE company_name = ? AND first_name = ? AND last_name = ?",
+            (company_name, first_name, last_name),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+def get_lead_by_domain(domain: str) -> Optional[dict]:
+    """Level 3 dedup — return any existing lead for this company domain, or None."""
+    if not domain:
+        return None
+    with db() as conn:
+        row = conn.execute(
+            "SELECT * FROM leads WHERE domain = ? LIMIT 1", (domain,)
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def update_lead_status(lead_id: int, status: str):
     """Update a lead's status field."""
     with db() as conn:

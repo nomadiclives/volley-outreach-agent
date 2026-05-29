@@ -9,6 +9,7 @@ from core.database import (
     get_sequences, campaign_stats, list_leads, insert_campaign,
     update_campaign_strategy, get_apollo_credits_used, link_lead_to_campaign,
 )
+from core.credit_manager import CreditManager
 
 logger = logging.getLogger(__name__)
 bp = Blueprint("campaigns", __name__)
@@ -18,9 +19,7 @@ APOLLO_MONTHLY_LIMIT = 75  # free tier cap; mirrors config default
 
 def _apollo_credits_remaining(config: dict) -> int:
     """Return remaining Apollo credits for this calendar month."""
-    limit = int(config.get("apollo", {}).get("monthly_credit_limit", APOLLO_MONTHLY_LIMIT))
-    used = get_apollo_credits_used()
-    return max(0, limit - used)
+    return CreditManager(config).get_remaining("apollo")
 
 
 def _parse_wizard_form(form) -> tuple[dict, list[str]]:
@@ -59,6 +58,16 @@ def _parse_wizard_form(form) -> tuple[dict, list[str]]:
     except (TypeError, ValueError):
         lead_limit = 10
 
+    # Optional manual credit budget overrides from wizard Step 6 panel
+    budget_override: dict = {}
+    for provider in ("apollo", "lusha", "snov", "getprospect", "hunter"):
+        raw = form.get(f"budget_{provider}", "").strip()
+        if raw:
+            try:
+                budget_override[provider] = max(0, int(raw))
+            except ValueError:
+                pass
+
     if not name:
         errors.append("Campaign name is required.")
     if not vertical:
@@ -76,18 +85,19 @@ def _parse_wizard_form(form) -> tuple[dict, list[str]]:
         geo_str += f" ({geo_cities})"
 
     wizard_data = {
-        "vertical":       vertical,
-        "geo_countries":  geo_countries,
-        "geo_cities":     geo_cities,
-        "employees_min":  employees_min,
-        "employees_max":  employees_max,
-        "multi_location": multi_location,
-        "buying_signals": buying_signals,
-        "target_titles":  target_titles,
-        "exclusions":     exclusions,
-        "lead_limit":     lead_limit,
-        "geo_str":        geo_str,
-        "name":           name,
+        "vertical":        vertical,
+        "geo_countries":   geo_countries,
+        "geo_cities":      geo_cities,
+        "employees_min":   employees_min,
+        "employees_max":   employees_max,
+        "multi_location":  multi_location,
+        "buying_signals":  buying_signals,
+        "target_titles":   target_titles,
+        "exclusions":      exclusions,
+        "lead_limit":      lead_limit,
+        "geo_str":         geo_str,
+        "name":            name,
+        "credit_budget":   budget_override or None,
     }
     return wizard_data, []
 
@@ -197,6 +207,14 @@ def apollo_credits():
     return jsonify({"remaining": remaining, "limit": limit, "used": limit - remaining})
 
 
+@bp.route("/api/credit-balances")
+def credit_balances():
+    """Return credit balances for all sources as JSON (used by wizard Step 6 panel)."""
+    config = current_app.config["VOLLEY_CONFIG"]
+    balances = CreditManager(config).get_all_balances()
+    return jsonify(balances)
+
+
 @bp.route("/campaigns/find-leads", methods=["POST"])
 def find_leads_route():
     """Find and score leads from the ICP wizard. No AI copy generated, no Claude cost."""
@@ -231,7 +249,12 @@ def find_leads_route():
             "status":          "draft",
         })
 
-        leads = find_leads(icp_description, config, limit=lead_limit, icp_data=icp_data)
+        leads = find_leads(
+            icp_description, config,
+            limit=lead_limit,
+            icp_data=icp_data,
+            credit_budget=wizard_data.get("credit_budget"),
+        )
 
         linked = 0
         for lead in leads:
@@ -333,7 +356,12 @@ def find_and_generate_route():
         })
 
         generate_sequence(campaign_id, strategy, icp_data, config)
-        leads = find_leads(icp_description, config, limit=lead_limit, icp_data=icp_data)
+        leads = find_leads(
+            icp_description, config,
+            limit=lead_limit,
+            icp_data=icp_data,
+            credit_budget=wizard_data.get("credit_budget"),
+        )
 
         linked = 0
         for lead in leads:

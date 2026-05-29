@@ -103,6 +103,47 @@
     display: none;
   }
 
+  /* Credit budget panel */
+  .budget-panel {
+    border: 1px solid var(--border); border-radius: 8px;
+    margin-bottom: 16px; overflow: hidden;
+  }
+  .budget-panel-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 10px 14px; background: #f8faff; border-bottom: 1px solid var(--border);
+    cursor: pointer; user-select: none;
+  }
+  .budget-panel-header .bp-title { font-size: 0.85rem; font-weight: 700; }
+  .budget-panel-header .bp-mode {
+    font-size: 0.75rem; padding: 2px 9px; border-radius: 999px;
+    background: #e8f5e9; color: #2e7d32; font-weight: 600;
+  }
+  .budget-panel-header .bp-mode.manual { background: #fff3e0; color: #e65100; }
+  .budget-panel-body { padding: 12px 14px; display: none; }
+  .budget-panel-body.open { display: block; }
+  .budget-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 0;
+    border-bottom: 1px solid var(--border); font-size: 0.82rem;
+  }
+  .budget-row:last-child { border-bottom: none; }
+  .budget-row .br-name { width: 110px; font-weight: 600; flex-shrink: 0; }
+  .budget-row .br-bar-wrap { flex: 1; height: 6px; background: var(--border); border-radius: 3px; }
+  .budget-row .br-bar { height: 100%; border-radius: 3px; background: var(--accent); transition: width 0.3s; }
+  .budget-row .br-credits { width: 80px; font-size: 0.78rem; color: var(--muted); text-align: right; flex-shrink: 0; }
+  .budget-row .br-input { width: 64px; font-size: 0.8rem; flex-shrink: 0; display: none; }
+  .budget-panel-body.manual-mode .br-input { display: block; }
+  .budget-panel-body.manual-mode .br-bar-wrap { display: none; }
+  .budget-mode-toggle {
+    display: flex; gap: 8px; margin-bottom: 10px; align-items: center;
+    font-size: 0.8rem;
+  }
+  .budget-mode-toggle button {
+    padding: 3px 10px; border-radius: 999px; border: 1.5px solid var(--border);
+    background: #fff; cursor: pointer; font-size: 0.78rem; font-weight: 600;
+    color: var(--muted); transition: all 0.15s;
+  }
+  .budget-mode-toggle button.active { border-color: var(--accent); background: #eef4ff; color: var(--accent); }
+
   /* Action cards */
   .action-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-top: 4px; }
   .action-card {
@@ -521,6 +562,34 @@
           <div class="sum-row"><span class="sum-lbl">Titles</span><span id="sum-titles">—</span></div>
         </div>
 
+        <!-- Credit Budget Panel -->
+        <div class="budget-panel" id="budget-panel">
+          <div class="budget-panel-header" onclick="toggleBudgetPanel()">
+            <span class="bp-title">Credit Budget</span>
+            <span class="bp-mode" id="bp-mode-badge">Auto</span>
+          </div>
+          <div class="budget-panel-body" id="budget-body">
+            <div class="budget-mode-toggle">
+              <span style="color:var(--muted);">Allocation mode:</span>
+              <button type="button" id="btn-auto-mode" class="active" onclick="setBudgetMode('auto')">Auto</button>
+              <button type="button" id="btn-manual-mode" onclick="setBudgetMode('manual')">Manual override</button>
+            </div>
+            <div id="budget-rows">
+              <!-- Populated by loadCreditBalances() -->
+              <div style="font-size:0.8rem; color:var(--muted); padding:8px 0;">Loading credit balances…</div>
+            </div>
+            <div id="manual-hint" style="font-size:0.75rem; color:var(--muted); margin-top:8px; display:none;">
+              Enter how many credits to allocate per source for this campaign run. Leave blank to skip a source.
+            </div>
+            <!-- Hidden inputs submitted with the form -->
+            <input type="hidden" id="budget_apollo"      name="budget_apollo">
+            <input type="hidden" id="budget_lusha"       name="budget_lusha">
+            <input type="hidden" id="budget_snov"        name="budget_snov">
+            <input type="hidden" id="budget_getprospect" name="budget_getprospect">
+            <input type="hidden" id="budget_hunter"      name="budget_hunter">
+          </div>
+        </div>
+
         <!-- Lead limit + credits (shown for find-related actions) -->
         <div id="credits-warning" class="no-credits-warning">
           ⚠️ You have <strong>0 Apollo credits</strong> remaining this month. Lead finding is unavailable until the monthly counter resets. Use <em>Generate Strategy &amp; Sequence Only</em> in the meantime.
@@ -734,6 +803,87 @@ function populateSummary() {
       : '—';
 
   loadCredits();
+  loadCreditBalances();
+}
+
+/* ─── Credit budget panel ─── */
+let _budgetMode = 'auto';
+let _balances = {};
+
+const PROVIDER_LABELS = {
+  apollo:      'Apollo',
+  lusha:       'Lusha',
+  snov:        'Snov.io',
+  getprospect: 'GetProspect',
+  hunter:      'Hunter',
+};
+
+function toggleBudgetPanel() {
+  const body = document.getElementById('budget-body');
+  body.classList.toggle('open');
+}
+
+function setBudgetMode(mode) {
+  _budgetMode = mode;
+  document.getElementById('btn-auto-mode').classList.toggle('active', mode === 'auto');
+  document.getElementById('btn-manual-mode').classList.toggle('active', mode === 'manual');
+  document.getElementById('bp-mode-badge').textContent = mode === 'manual' ? 'Manual' : 'Auto';
+  document.getElementById('bp-mode-badge').className = 'bp-mode' + (mode === 'manual' ? ' manual' : '');
+  document.getElementById('manual-hint').style.display = mode === 'manual' ? '' : 'none';
+  document.getElementById('budget-rows').classList.toggle('manual-mode', mode === 'manual');
+
+  if (mode === 'auto') {
+    // Clear manual hidden inputs when switching back to auto
+    ['apollo','lusha','snov','getprospect','hunter'].forEach(p => {
+      document.getElementById('budget_' + p).value = '';
+    });
+  } else {
+    // Pre-fill inputs with current auto values (60% of remaining)
+    ['apollo','lusha','snov','getprospect','hunter'].forEach(p => {
+      const bal = _balances[p] || {};
+      const auto = Math.floor((bal.remaining || 0) * 0.6);
+      const input = document.querySelector(`[data-budget-input="${p}"]`);
+      if (input) input.value = auto;
+      document.getElementById('budget_' + p).value = auto;
+    });
+  }
+}
+
+function loadCreditBalances() {
+  fetch('/api/credit-balances')
+    .then(r => r.json())
+    .then(data => {
+      _balances = data;
+      const container = document.getElementById('budget-rows');
+      container.innerHTML = '';
+      const providers = ['apollo', 'lusha', 'snov', 'getprospect', 'hunter'];
+      providers.forEach(p => {
+        const bal = data[p] || {limit:0, used:0, remaining:0};
+        const pct = bal.limit > 0 ? Math.round((bal.remaining / bal.limit) * 100) : 0;
+        const barColor = pct > 40 ? 'var(--accent)' : pct > 15 ? '#f59e0b' : 'var(--red)';
+        const row = document.createElement('div');
+        row.className = 'budget-row';
+        row.innerHTML = `
+          <span class="br-name">${PROVIDER_LABELS[p] || p}</span>
+          <div class="br-bar-wrap">
+            <div class="br-bar" style="width:${pct}%; background:${barColor};"></div>
+          </div>
+          <input type="number" class="form-control br-input" min="0" max="${bal.remaining}"
+            data-budget-input="${p}" placeholder="0"
+            oninput="syncBudgetInput('${p}', this.value)">
+          <span class="br-credits">${bal.remaining} / ${bal.limit}</span>
+        `;
+        container.appendChild(row);
+      });
+    })
+    .catch(() => {
+      document.getElementById('budget-rows').innerHTML =
+        '<div style="font-size:0.8rem; color:var(--muted); padding:8px 0;">Could not load credit balances.</div>';
+    });
+}
+
+function syncBudgetInput(provider, value) {
+  document.getElementById('budget_' + provider).value = value;
 }
 
 /* ─── Apollo credits loader ─── */

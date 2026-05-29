@@ -1,15 +1,15 @@
 """Hunter.io API client — email finding + verification.
 
-Credit tracking: every domain_search() and email_finder() call counts
-against the monthly search limit. The hard stop is enforced before each
-call via _check_credit().
+Credit gate: every domain_search(), email_finder(), and verify_email() call
+goes through CreditManager.check_and_spend("hunter") before the request.
+Hard stop at 50 searches/month.
 """
 
 import logging
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
 
-from core.database import log_api_usage, get_monthly_api_credits
+from core.credit_manager import CreditManager, CreditLimitReached
 
 logger = logging.getLogger(__name__)
 BASE_URL = "https://api.hunter.io/v2"
@@ -18,7 +18,7 @@ BASE_URL = "https://api.hunter.io/v2"
 class HunterClient:
     def __init__(self, config: dict):
         self.api_key = config["hunter"]["api_key"]
-        self.monthly_limit = config["hunter"].get("monthly_search_limit", 50)
+        self.credits = CreditManager(config)
         self.session = requests.Session()
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=8))
@@ -28,22 +28,9 @@ class HunterClient:
         resp.raise_for_status()
         return resp.json()
 
-    def _check_credit(self):
-        """Raise RuntimeError if the monthly Hunter search limit has been reached.
-
-        Queries the local api_usage table — no external API call needed.
-        """
-        used = get_monthly_api_credits("hunter")
-        if used >= self.monthly_limit:
-            raise RuntimeError(
-                f"Hunter search limit reached ({used}/{self.monthly_limit} searches "
-                f"used this month). Resets on the 1st."
-            )
-        logger.debug("Hunter searches: %d/%d used this month", used, self.monthly_limit)
-
     def domain_search(self, domain: str, limit: int = 10) -> list[dict]:
         """Find emails for a domain. Returns leads with hunter_confidence as a structured int field."""
-        self._check_credit()
+        self.credits.check_and_spend("hunter", purpose="email_resolution")
 
         try:
             data = self._get("domain-search", {"domain": domain, "limit": limit})
@@ -76,15 +63,7 @@ class HunterClient:
                 "status":            "new",
                 "notes":             "",
             })
-        # Log 1 search credit consumed regardless of how many results came back
-        log_api_usage(
-            provider="hunter",
-            model="domain_search",
-            purpose="email_resolution",
-            input_tokens=1,
-            output_tokens=0,
-            cost_usd=0.0,
-        )
+
         logger.info("Hunter domain_search [%s]: %d leads (confidence ≥70)", domain, len(leads))
         return leads
 
@@ -93,9 +72,8 @@ class HunterClient:
 
         Returns a lead dict with hunter_confidence set, or None if not found
         or confidence is below 70.
-        Used in Phase 2 contact resolution as a fallback after Lusha/Snov.
         """
-        self._check_credit()
+        self.credits.check_and_spend("hunter", purpose="email_resolution")
 
         try:
             data = self._get(
@@ -111,18 +89,7 @@ class HunterClient:
 
         result = data.get("data", {})
         email = result.get("email", "")
-        # Hunter email-finder uses 'score' (0-100) rather than 'confidence'
         confidence = int(result.get("score") or 0)
-
-        # Log 1 search credit regardless of whether a result was found
-        log_api_usage(
-            provider="hunter",
-            model="email_finder",
-            purpose="email_resolution",
-            input_tokens=1,
-            output_tokens=0,
-            cost_usd=0.0,
-        )
 
         if not email or confidence < 70:
             logger.debug(
