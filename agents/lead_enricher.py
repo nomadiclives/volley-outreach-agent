@@ -371,8 +371,12 @@ def _check_auto_reject(lead: dict, icp: dict) -> tuple[bool, str]:
     # below 70% — meaning there is no reliable path to reach them. If Hunter
     # confidence is ≥70%, the lead is kept and scores lower on data completeness;
     # the operator decides whether to pursue manual outreach.
+    #
+    # Leads from Apollo or Google Maps are never processed by Hunter, so they
+    # carry no hunter_confidence field. Default to 100 (pass) for those leads
+    # so they are not incorrectly auto-rejected by this gate.
     if not lead.get("email"):
-        hunter_confidence = lead.get("hunter_confidence") or 0
+        hunter_confidence = lead.get("hunter_confidence", 100)
         if hunter_confidence < 70:
             return True, f"No email found and Hunter confidence too low ({hunter_confidence}%)"
 
