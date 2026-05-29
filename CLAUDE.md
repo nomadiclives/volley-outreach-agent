@@ -25,15 +25,31 @@ Volley is a production-ready automated outreach agent for a pay-per-lead lead ge
 
 | Layer | Tool | Cost |
 |---|---|---|
-| Lead finding | Apollo.io free tier (75 credits/month) | €0 |
-| Email finding | Hunter.io free tier (50 searches/month) | €0 |
-| Local businesses | Google Maps Places API | €0 |
-| LinkedIn | Playwright public scraper | €0 |
+| Lead finding — B2B contacts | Apollo.io free tier (75 credits/month) | €0 |
+| Lead finding — European contacts | Lusha free tier (40 credits/month) | €0 |
+| Lead finding — email finding | Snov.io free tier (50 credits/month) | €0 |
+| Lead finding — LinkedIn-based | GetProspect free tier (50 credits/month) | €0 |
+| Email resolution | Hunter.io free tier (50 searches/month) | €0 |
+| Local/SMB company discovery | Google Maps Places API | €0 |
+| Ad spend signal | Facebook Ad Library (public) + homepage pixel check | €0 |
+| LinkedIn contact data | Playwright public scraper | €0 |
 | CRM | Google Sheets API | €0 |
 | AI | Claude API — claude-haiku-4-5 | ~€0.02/campaign |
 | Email sending | Gmail SMTP + custom domain | €0 |
 | Dashboard | Flask + Jinja2 + vanilla CSS | €0 |
 | State | SQLite | €0 |
+
+**Combined free credit bank: ~215 verified contacts/month across all sources**
+
+| Source | Credits | Strength |
+|---|---|---|
+| Apollo | 75/month | B2B contacts with titles + emails, broad database |
+| Lusha | 40/month | European contacts, strongest for DACH region |
+| Snov.io | 50/month | Email finder, good Apollo complement |
+| GetProspect | 50/month | LinkedIn-based contact extraction, good titles |
+| Hunter | 50/month | Domain-based email resolution, high accuracy |
+| Google Maps | Unlimited | Local/SMB company discovery |
+| Facebook Ad Library | Unlimited | Ad spend signal, active advertiser discovery |
 
 **Philosophy: free or near-free everywhere. Never add a paid dependency without flagging it.**
 
@@ -52,8 +68,9 @@ volley/
 ├── agents/
 │   ├── claude_client.py       # ALL Claude API calls go through here — cost tracking wrapper
 │   ├── icp_analyzer.py        # Structured wizard inputs → Apollo search params
-│   ├── lead_finder.py         # Apollo → Hunter → Google Maps → LinkedIn waterfall
+│   ├── lead_finder.py         # Two-phase architecture: Discovery → Contact Resolution
 │   ├── lead_enricher.py       # Email validation + weighted lead buyer scoring
+│   ├── buying_signal_checker.py # Homepage pixel check + Facebook Transparency check
 │   ├── strategy_generator.py  # AI outreach strategy generation
 │   ├── copywriter.py          # 4-email sequence (SPIN-informed Email 1, break-up Email 4)
 │   └── reply_analyzer.py      # Thread reconstruction + human vs automated classification
@@ -61,15 +78,20 @@ volley/
 ├── integrations/
 │   ├── apollo.py              # Apollo.io API — 75 credit/month hard stop
 │   ├── hunter.py              # Hunter.io API — 50 search/month hard stop
-│   ├── google_sheets.py       # Bidirectional CRM sync
+│   ├── lusha.py               # Lusha API — 40 credit/month hard stop (European contacts)
+│   ├── snov.py                # Snov.io API — 50 credit/month hard stop (email finder)
+│   ├── getprospect.py         # GetProspect API — 50 credit/month hard stop (LinkedIn-based)
+│   ├── google_sheets.py       # Bidirectional CRM sync — update in place, no duplicates
 │   ├── gmail_smtp.py          # Email sending — daily limit enforced
 │   ├── instantly.py           # Warmup only — free trial, switches off via config flag
 │   ├── linkedin_scraper.py    # Playwright, 2-5s delays, max 50/session
+│   ├── facebook_ads.py        # Facebook Ad Library + Page Transparency scraper
 │   └── google_maps.py         # Places API for local/SMB sourcing
 │
 ├── core/
 │   ├── database.py            # SQLite schema + all CRUD
-│   ├── deduplicator.py        # Cross-source deduplication
+│   ├── deduplicator.py        # PRE-SEARCH dedup — checks DB before spending credits
+│   ├── credit_manager.py      # Cross-source credit tracking + budget allocation
 │   ├── email_validator.py     # MX check + format validation
 │   ├── scheduler.py           # Background send engine — resumes from SQLite on restart
 │   └── reply_handler.py       # CRITICAL: human reply → immediate sequence cancellation
@@ -77,7 +99,7 @@ volley/
 ├── web/
 │   ├── app.py                 # Flask factory
 │   ├── routes/
-│   │   ├── dashboard.py       # Home — stats, notifications, warmup status
+│   │   ├── dashboard.py       # Home — stats, notifications, warmup status, credit bank
 │   │   ├── campaigns.py       # Campaign management + 6-step ICP wizard + approval flow
 │   │   ├── leads.py           # Lead CRM — score breakdown, filters, bulk actions
 │   │   ├── sequences.py       # Email viewer/editor
@@ -89,7 +111,7 @@ volley/
 │
 └── scripts/
     ├── setup.py               # One-command first-time setup
-    ├── migrate_lead_scores.py # DB migration — adds scoring columns to leads table
+    ├── migrate_lead_scores.py # DB migration — scoring columns (already run)
     └── dns_checker.py         # SPF/DKIM/DMARC verification
 ```
 
@@ -126,6 +148,97 @@ Log to `outreach_log` BEFORE the SMTP call. If the process crashes mid-send, no 
 
 ### 5. Unsubscribe Is Absolute
 Any reply containing "unsubscribe", "remove me", "stop emailing", "opt out" → immediately cancel all scheduled steps, mark lead as `unsubscribed`, never contact again. This cannot be reversed by the operator.
+
+---
+
+## Two-Phase Lead Finding Architecture
+
+Lead finding operates in two distinct phases. Never merge them.
+
+### Phase 1 — Company Discovery
+Find companies that match the ICP. Sources used in order:
+
+1. **Apollo** — B2B companies with known contacts. Best quality, preserve credits.
+2. **Google Maps** — Local/SMB companies by vertical + city. Unlimited, use freely.
+3. **Facebook Ad Library** — Companies actively running ads in a vertical. Free, high buying signal value. Search by vertical keyword, extract company names and domains.
+
+Output of Phase 1: a list of companies (name + domain) with no contact person yet.
+
+### Phase 2 — Contact & Email Resolution
+For each company found in Phase 1, find the right person and their email. Sources tried in order, stopping as soon as a verified email is found:
+
+1. **Apollo** — if Apollo found the company, it may already have a contact. Check first, no extra credit spent.
+2. **Lusha** — try next, especially strong for European/DACH companies.
+3. **Snov.io** — email finder by domain.
+4. **GetProspect** — LinkedIn-based contact extraction.
+5. **Hunter** — domain search as final resolver.
+6. **LinkedIn scraper** — Playwright, extract contact name + title, then pass to Hunter for email.
+
+Stop as soon as a verified email is found. Never call multiple Phase 2 sources for the same company.
+
+### Pre-Search Deduplication (CRITICAL — prevents wasted credits)
+
+Before calling ANY source in either phase, check the local DB first:
+
+**Level 1 — Email dedup:**
+Before spending a Phase 2 credit to find an email, check if that email already exists in the leads table. If yes, skip entirely — zero credits spent.
+
+**Level 2 — Company+contact dedup:**
+Before Phase 2 resolution, check if `company_name + first_name + last_name` already exists. If yes, skip all Phase 2 sources for that contact.
+
+**Level 3 — Domain dedup:**
+Before Phase 1 discovery, check if the company domain already exists in the leads table. If yes, skip that company across all Phase 1 sources.
+
+This means each source only fills gaps left by previous ones. Estimated credit waste from overlap: <5% (down from 20-30% without pre-search dedup).
+
+### Credit-Aware Budget Allocation
+
+At the start of each campaign's lead finding run, `core/credit_manager.py` calculates available credits per source and allocates a budget:
+
+```python
+# Example allocation for a request of 30 leads:
+available = {
+    "apollo": 60,      # 75 - 15 used this month
+    "lusha": 40,       # full month remaining
+    "snov": 50,        # full month remaining
+    "getprospect": 50, # full month remaining
+    "hunter": 45,      # 50 - 5 used this month
+}
+
+# Allocate conservatively — never use more than 60% of remaining credits per campaign
+# Spread across sources to preserve monthly budget for future campaigns
+budget = {
+    "apollo": 20,      # use 20 of 60 available
+    "lusha": 15,
+    "snov": 15,
+    "getprospect": 10,
+    "hunter": 10,
+}
+# Total budget: 70 resolution attempts for 30 leads (covers ~2.3x for misses)
+```
+
+**Manual override:** The campaign wizard Step 6 shows a credit budget panel where the operator can override per-source allocation before starting a run. Default is automatic. Override is optional.
+
+Dashboard must show live credit bank status for all sources at all times.
+
+### Buying Signal Detection
+
+Run for every lead after Phase 2 completes. Two checks:
+
+**Check 1 — Homepage pixel scan (fast, runs on all leads):**
+Fetch company homepage HTML. Look for:
+- Meta Pixel (`connect.facebook.net/en_US/fbevents.js`)
+- Google Ads tag (`googleadservices.com` or `gtag('config', 'AW-`)
+- Google Tag Manager (`googletagmanager.com/gtm.js`)
+- TrustedForm (`trustedform.com`)
+- Jornaya (`leadid.com`)
+
+**Check 2 — Facebook Page Transparency (runs on leads scoring >40 after other criteria):**
+Fetch `https://www.facebook.com/{page_slug}/about_profile_transparency` via Playwright.
+Look for text: "This page is currently running ads."
+If found: `buying_signals["running_ads"] = True`, `buying_signals["fb_ads_confirmed"] = True`
+
+Store all results in `buying_signals` JSON field on the lead. These feed directly into `_score_ad_spend()` (20pts) and `_score_multi_location()` (15pts) in lead_enricher.py.
 
 ---
 
@@ -337,11 +450,24 @@ CREATE TABLE IF NOT EXISTS notifications (
 ```yaml
 apollo:
   api_key: ""
-  monthly_credit_limit: 75
+  monthly_credit_limit: 75  # CONFIRMED: Apollo free tier = 75 credits/month
 
 hunter:
   api_key: ""
-  monthly_search_limit: 50
+  monthly_search_limit: 50  # CONFIRMED: Hunter free tier = 50 searches/month
+
+lusha:
+  api_key: ""
+  monthly_credit_limit: 40
+
+snov:
+  client_id: ""
+  client_secret: ""
+  monthly_credit_limit: 50
+
+getprospect:
+  api_key: ""
+  monthly_credit_limit: 50
 
 claude:
   api_key: ""
@@ -420,48 +546,85 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 
 ---
 
-## Pending Tasks (as of last session)
+## Pending Tasks
 
-### Completed ✅
-- DB migration (`scripts/migrate_lead_scores.py`) — all scoring columns added
-- Lead scorer (`agents/lead_enricher.py`) — weighted 100-point framework implemented
-- ICP wizard — 6-step structured wizard built and working
+### Fix Now — Before First Real Campaign
 
-### Immediate — implement via Claude Code (next session)
+These are bugs or gaps that make current output unreliable:
 
-**Change A — Soft vs hard filter logic**
-Update `agents/lead_finder.py` and `agents/lead_enricher.py` so that only hard gates exclude leads (employee <5, solo operator, red flag verticals, unverifiable email). All other wizard selections (buying signals, multi-location, title match) affect the score only — never exclude. A lead scoring 45 should appear in yellow, not be filtered out.
+**1. Buying signals never populated (35pts always = 0)**
+Build `agents/buying_signal_checker.py`. Homepage pixel scan on all leads. Facebook Transparency check on leads scoring >40. Store in `buying_signals` JSON field. Connect to `_score_ad_spend()` and `_score_multi_location()` in lead_enricher.py.
 
-Files: `agents/lead_finder.py`, `agents/lead_enricher.py`
+**2. Hunter confidence not a structured field**
+In `integrations/hunter.py`, extract confidence as integer field on the lead dict (not buried in notes string). Update hard gate check in lead_enricher.py to read `lead["hunter_confidence"]` correctly.
 
-**Change B — Lead limit input on Step 6**
-Add a numeric input to the Step 6 wizard screen (visible when "Find Leads Only" or "Do Both" is selected). Default: 10. Maximum: remaining Apollo credits (calculated from api_usage table: 75 minus credits used this month). Show remaining credits as helper text next to the input.
+**3. Google Sheets sync duplicates rows**
+Fix `integrations/google_sheets.py` — match on email as unique key, update row in place if found, insert only if new. Never append blindly. Do NOT run `python main.py sync` until this is fixed.
 
-Files: `web/templates/campaigns.html`, `web/routes/campaigns.py`
+**4. Spam filter blocks instead of warns**
+In `agents/copywriter.py`, if `_check_spam()` finds triggers, reject the draft and regenerate (up to 3 attempts). If still failing after 3 attempts, flag for human review — do not save and use.
 
-**Change C — Three action buttons on Step 6**
-Replace the single "Generate Strategy & Sequence" button with three clearly labelled action buttons:
-- **Find Leads Only** → triggers `/campaigns/find-leads` route
-- **Generate Strategy & Sequence Only** → triggers `/campaigns/generate-sequence` route  
-- **Do Both** → triggers `/campaigns/find-and-generate` route
+**5. Weekend cadence drift**
+In `core/scheduler.py`, when scheduling future steps, advance the target date forward to the next weekday if it falls on Saturday or Sunday. Log the adjustment.
 
-Each button should have a one-line description underneath it explaining what it does and what it costs (credits/API). Each route must work fully independently.
+**6. Apollo CLI credit gate**
+Move credit check into `integrations/apollo.py` `search_people()` method directly — not just in the web routes. CLI `python main.py find` must also enforce the limit.
 
-Files: `web/templates/campaigns.html`, `web/routes/campaigns.py`, `main.py`
+**7. Hunter monthly limit never enforced**
+Add pre-call credit check in `integrations/hunter.py` — same pattern as Apollo.
 
-### Claude Code prompt to use (run all three as one instruction):
-> "Make three changes to the ICP wizard Step 6 and the campaign routes. First: update lead_finder.py and lead_enricher.py so that only hard gates exclude leads (employee count <5, solo operators, red flag verticals, Hunter confidence <70% with no verified email) — all other wizard selections affect score only, never filter out leads. Second: add a lead limit numeric input to Step 6 (default 10, max = remaining Apollo credits from api_usage table, show credits remaining as helper text) that appears when Find Leads Only or Do Both is selected. Third: replace the single Generate Strategy & Sequence button with three action buttons — Find Leads Only, Generate Strategy & Sequence Only, and Do Both — each with a one-line description and cost note, each triggering a separate backend route that works fully independently."
+### Build Next — Adds Real Capability
 
-### Pending setup (not blocking code work)
+**8. Two-phase lead finding architecture**
+Rebuild `agents/lead_finder.py` with Phase 1 (company discovery) and Phase 2 (contact resolution) separation. Implement pre-search dedup at all three levels (email, company+contact, domain). Add `core/credit_manager.py` for budget allocation.
+
+**9. New integrations: Lusha, Snov.io, GetProspect**
+Build in this order:
+- `integrations/lusha.py` — 40 credits/month, strongest for European contacts
+- `integrations/snov.py` — 50 credits/month, email finder
+- `integrations/getprospect.py` — 50 credits/month, LinkedIn-based
+Each must hard-stop at monthly limit, log to api_usage table.
+
+**10. Facebook Ad Library integration**
+Build `integrations/facebook_ads.py` — Playwright scraper for Ad Library search by keyword/vertical + Facebook Page Transparency check. Feed results into buying_signals.
+
+**11. LinkedIn properly wired**
+Connect `integrations/linkedin_scraper.py` as the final fallback in Phase 2 contact resolution. Extract name + title, pass domain to Hunter for email.
+
+**12. Manual credit override on Step 6**
+Add credit budget panel to wizard Step 6 showing live per-source credit remaining. Allow operator to override per-source allocation before starting run. Default is automatic allocation from credit_manager.
+
+**13. Dashboard credit bank widget**
+Add live credit bank status to dashboard home — all sources, credits remaining this month, resets on 1st of month.
+
+### Polish Later
+
+**14. Funnel chart in analytics**
+Found → Approved → Sent → Opened → Replied → Interested. Assemble funnel data in analytics.py route.
+
+**15. Top subject lines by open rate**
+In analytics.py, query outreach_log joined to sequences, group by subject, rank by open rate.
+
+**16. Per-lead score breakdown in detail modal**
+Verify lead_detail.html renders individual sub-scores visually, not just the total.
+
+**17. AI reply classifier connected**
+In reply_handler.py, call `classify_reply_with_ai()` for ambiguous replies instead of defaulting to "human_unknown".
+
+**18. Warmup auto-switch logic**
+Increment `warmup_days_elapsed` daily in scheduler. Auto-advance warmup limits per schedule. Auto-switch to Gmail SMTP when warmup_active set to false.
+
+### Pending Setup (not blocking code work)
 - Buy outreach domain (~€10) — needed before any emails can send
 - Set up Cloudflare DNS (SPF, DKIM, DMARC, MX, Vercel CNAME)
 - Sign up for Instantly free trial (warmup)
+- Sign up for Lusha, Snov.io, GetProspect free tiers → get API keys
 - Share Google Sheet with service account email from credentials.json
 - Run `python scripts/dns_checker.py --domain yourdomain.com`
 
-### Open decisions
-- Final brand/domain name (ProspectCore GbR dissolution in progress — partners consulted, awaiting one response)
-- Einstiegsgeld meeting in ~10 days — do NOT register Gewerbe before then
+### Open Decisions
+- Final brand/domain name (ProspectCore GbR dissolution in progress)
+- Einstiegsgeld meeting — do NOT register Gewerbe before then
 
 ---
 
