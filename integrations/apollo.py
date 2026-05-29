@@ -104,16 +104,15 @@ class ApolloClient:
                 "notes":         "",
             })
 
-        # Log credits consumed (1 credit per returned person)
-        if leads:
-            log_api_usage(
-                provider="apollo",
-                model="people_search",
-                purpose="lead_discovery",
-                input_tokens=len(leads),
-                output_tokens=0,
-                cost_usd=0.0,
-            )
+        # Log 1 search credit per call regardless of results returned
+        log_api_usage(
+            provider="apollo",
+            model="people_search",
+            purpose="lead_discovery",
+            input_tokens=1,
+            output_tokens=0,
+            cost_usd=0.0,
+        )
         logger.info("Apollo returned %d usable leads", len(leads))
         return leads
 
