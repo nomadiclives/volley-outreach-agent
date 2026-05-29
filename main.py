@@ -125,17 +125,13 @@ def sync():
     """Force sync SQLite ↔ Google Sheets."""
     config = load_config()
     from core.database import init_db, list_leads
-    from integrations.google_sheets import init_sheets, sync_lead
+    from integrations.google_sheets import init_sheets, bulk_sync_leads
     init_db()
     init_sheets(config)
 
     leads = list_leads(limit=10000)
     console.print(f"Syncing {len(leads)} leads to Google Sheets...")
-    for lead in leads:
-        try:
-            sync_lead(lead)
-        except Exception as e:
-            console.print(f"[red]Failed for {lead.get('email')}: {e}[/red]")
+    bulk_sync_leads(leads)
     console.print("[green]Sync complete[/green]")
 
 

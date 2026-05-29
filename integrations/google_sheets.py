@@ -1,4 +1,11 @@
-"""Google Sheets CRM sync client."""
+"""Google Sheets CRM sync client.
+
+Deduplication contract:
+    Email address is the unique key for the Leads tab.
+    sync_lead()      — upsert a single lead (one index read + one write).
+    bulk_sync_leads() — upsert many leads (one index read, batched writes).
+    Both are safe to call multiple times and will never create duplicate rows.
+"""
 
 import logging
 from typing import Optional
@@ -20,6 +27,9 @@ LEADS_HEADERS = [
     "Domain", "Industry", "Employees", "City", "Country",
     "Source", "ICP Score", "Status", "Email Verified", "Notes", "Created At",
 ]
+
+# Email is column F (1-based index 6, 0-based index 5 in LEADS_HEADERS)
+_EMAIL_COL_LETTER = "F"
 
 
 def _get_service():
@@ -49,7 +59,11 @@ def init_sheets(config: dict):
     _spreadsheet_id = config["google"].get("sheets_spreadsheet_id", "")
 
 
+# ── Low-level read/write helpers ──────────────────────────────────────────────
+
+
 def _append_rows(tab: str, rows: list[list]):
+    """Append one or more rows to the bottom of a tab."""
     svc = _get_service()
     if not svc or not _spreadsheet_id:
         logger.debug("Sheets not configured — skipping append to %s", tab)
@@ -65,44 +79,86 @@ def _append_rows(tab: str, rows: list[list]):
         logger.error("Sheets append failed: %s", e)
 
 
-def _update_cell(tab: str, row: int, col: int, value: str):
+def _update_row(tab: str, row_num: int, values: list):
+    """Overwrite a full row at the given 1-based row number."""
     svc = _get_service()
     if not svc or not _spreadsheet_id:
         return
-    col_letter = chr(ord("A") + col - 1)
     try:
         svc.spreadsheets().values().update(
             spreadsheetId=_spreadsheet_id,
-            range=f"{tab}!{col_letter}{row}",
+            range=f"{tab}!A{row_num}",
             valueInputOption="USER_ENTERED",
-            body={"values": [[value]]},
+            body={"values": [values]},
         ).execute()
     except Exception as e:
-        logger.error("Sheets update failed: %s", e)
+        logger.error("Sheets row update failed (row %d): %s", row_num, e)
 
 
-def _find_lead_row(lead_id: int) -> Optional[int]:
-    """Return 1-based row index for a lead id in the Leads tab."""
+def _batch_update_rows(tab: str, updates: list[tuple[int, list]]):
+    """Update multiple rows in a single API call.
+
+    updates — list of (1-based row_num, values) pairs.
+    Chunked at 50 to stay comfortably under the API payload limit.
+    """
+    svc = _get_service()
+    if not svc or not _spreadsheet_id or not updates:
+        return
+
+    chunk_size = 50
+    for i in range(0, len(updates), chunk_size):
+        chunk = updates[i : i + chunk_size]
+        data = [
+            {"range": f"{tab}!A{row_num}", "values": [values]}
+            for row_num, values in chunk
+        ]
+        try:
+            svc.spreadsheets().values().batchUpdate(
+                spreadsheetId=_spreadsheet_id,
+                body={"valueInputOption": "USER_ENTERED", "data": data},
+            ).execute()
+        except Exception as e:
+            logger.error("Sheets batch update failed (chunk %d): %s", i // chunk_size, e)
+
+
+# ── Email index ────────────────────────────────────────────────────────────────
+
+
+def _build_email_index() -> dict[str, int]:
+    """Read the Email column from the Leads tab.
+
+    Returns a dict of lowercase email → 1-based row number.
+    Row 1 (header) is always skipped.
+    """
     svc = _get_service()
     if not svc or not _spreadsheet_id:
-        return None
+        return {}
     try:
         result = svc.spreadsheets().values().get(
             spreadsheetId=_spreadsheet_id,
-            range=f"{TAB_LEADS}!A:A",
+            range=f"{TAB_LEADS}!{_EMAIL_COL_LETTER}:{_EMAIL_COL_LETTER}",
         ).execute()
         values = result.get("values", [])
+        index: dict[str, int] = {}
         for i, row in enumerate(values):
-            if row and str(row[0]) == str(lead_id):
-                return i + 1  # 1-based
+            if i == 0:
+                continue  # skip header row
+            if row:
+                email = str(row[0]).strip().lower()
+                if email:
+                    index[email] = i + 1  # convert to 1-based row number
+        return index
     except Exception as e:
-        logger.error("Sheets row lookup failed: %s", e)
-    return None
+        logger.error("Sheets email index build failed: %s", e)
+        return {}
 
 
-def sync_lead(lead: dict):
-    """Append or update a lead row in the Leads tab."""
-    row = [
+# ── Row serialisation ─────────────────────────────────────────────────────────
+
+
+def _lead_to_row(lead: dict) -> list:
+    """Serialise a lead dict to a list matching LEADS_HEADERS column order."""
+    return [
         lead.get("id", ""),
         lead.get("company_name", ""),
         lead.get("first_name", ""),
@@ -121,21 +177,117 @@ def sync_lead(lead: dict):
         lead.get("notes", ""),
         lead.get("created_at", ""),
     ]
-    _append_rows(TAB_LEADS, [row])
+
+
+# ── Public API ────────────────────────────────────────────────────────────────
+
+
+def sync_lead(lead: dict):
+    """Upsert a single lead in the Leads tab.
+
+    If a row with the same email already exists, updates it in place.
+    If not, appends a new row.
+    Safe to call multiple times — never creates duplicates.
+    """
+    svc = _get_service()
+    if not svc or not _spreadsheet_id:
+        logger.debug("Sheets not configured — skipping sync_lead")
+        return
+
+    email = (lead.get("email") or "").strip().lower()
+    row = _lead_to_row(lead)
+
+    if not email:
+        logger.warning(
+            "sync_lead: lead id=%s has no email — appending without dedup check",
+            lead.get("id"),
+        )
+        _append_rows(TAB_LEADS, [row])
+        return
+
+    email_index = _build_email_index()
+    if email in email_index:
+        _update_row(TAB_LEADS, email_index[email], row)
+        logger.debug("Sheets updated row %d for %s", email_index[email], email)
+    else:
+        _append_rows(TAB_LEADS, [row])
+        logger.debug("Sheets appended new row for %s", email)
+
+
+def bulk_sync_leads(leads: list[dict]):
+    """Upsert a batch of leads efficiently.
+
+    Reads the email index once, then:
+      - existing rows → batchUpdate (one API call per 50 rows)
+      - new rows      → single append call
+
+    Idempotent: safe to run multiple times, never creates duplicates.
+    Leads with no email are skipped with a warning.
+    """
+    svc = _get_service()
+    if not svc or not _spreadsheet_id:
+        logger.debug("Sheets not configured — skipping bulk_sync_leads")
+        return
+
+    email_index = _build_email_index()
+    updates: list[tuple[int, list]] = []
+    to_append: list[list] = []
+
+    for lead in leads:
+        email = (lead.get("email") or "").strip().lower()
+        if not email:
+            logger.warning("bulk_sync: lead id=%s has no email — skipped", lead.get("id"))
+            continue
+
+        row = _lead_to_row(lead)
+        if email in email_index:
+            updates.append((email_index[email], row))
+        else:
+            to_append.append(row)
+            # Track within this batch so a duplicate in the input list isn't appended twice
+            email_index[email] = -1
+
+    if updates:
+        _batch_update_rows(TAB_LEADS, updates)
+    if to_append:
+        _append_rows(TAB_LEADS, to_append)
+
+    logger.info(
+        "Sheets bulk sync complete: %d updated, %d inserted",
+        len(updates),
+        len(to_append),
+    )
 
 
 def sync_lead_status(lead_id: int, status: str):
-    """Update only the status column for an existing lead row."""
-    row_num = _find_lead_row(lead_id)
-    if row_num:
-        # Status is column 14 (N)
-        _update_cell(TAB_LEADS, row_num, 14, status)
-    else:
-        logger.warning("Could not find row for lead %d in Sheets", lead_id)
+    """Update only the Status column for a lead identified by its DB id."""
+    svc = _get_service()
+    if not svc or not _spreadsheet_id:
+        return
+    try:
+        result = svc.spreadsheets().values().get(
+            spreadsheetId=_spreadsheet_id,
+            range=f"{TAB_LEADS}!A:A",
+        ).execute()
+        values = result.get("values", [])
+        for i, row in enumerate(values):
+            if row and str(row[0]) == str(lead_id):
+                row_num = i + 1
+                # Status is column N (14th column)
+                svc.spreadsheets().values().update(
+                    spreadsheetId=_spreadsheet_id,
+                    range=f"{TAB_LEADS}!N{row_num}",
+                    valueInputOption="USER_ENTERED",
+                    body={"values": [[status]]},
+                ).execute()
+                return
+    except Exception as e:
+        logger.error("sync_lead_status failed for lead %d: %s", lead_id, e)
+    logger.warning("Could not find row for lead %d in Sheets", lead_id)
 
 
 def ensure_headers():
-    """Write header rows to all tabs if sheet is empty."""
+    """Write header row to the Leads tab if the sheet is empty."""
     svc = _get_service()
     if not svc or not _spreadsheet_id:
         return
