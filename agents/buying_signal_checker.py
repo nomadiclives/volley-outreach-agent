@@ -21,9 +21,7 @@ Output schema (stored as buying_signals JSON on the lead):
 """
 
 import logging
-import random
 import re
-import time
 from typing import Optional
 from urllib.parse import urlparse
 
@@ -32,7 +30,6 @@ import requests
 logger = logging.getLogger(__name__)
 
 _HOMEPAGE_TIMEOUT = 8       # seconds per HTTP request
-_FB_TIMEOUT = 15_000        # ms for Playwright goto
 
 # ── Pixel / tag regex patterns ─────────────────────────────────────────────────
 
@@ -175,7 +172,9 @@ def _scan_homepage_pixels(domain: str) -> dict:
 
     out["meta_pixel"] = bool(_META_PIXEL.search(html))
     out["google_ads"] = any(p.search(html) for p in _GOOGLE_ADS)
-    out["gtm"] = bool(_GTM.search(html))
+    # Detect GTM by standard script URL or by container ID in any attribute
+    # (consent-wrapper implementations embed the ID in data-gtm-id etc.)
+    out["gtm"] = bool(_GTM.search(html) or _GTM_CONTAINER_ID.search(html))
     out["tcpa_signals"] = bool(_TRUSTEDFORM.search(html) or _JORNAYA.search(html))
 
     html_lower = html.lower()
@@ -218,40 +217,12 @@ def _derive_fb_slug(lead: dict) -> Optional[str]:
 
 
 def _fb_transparency_check(fb_slug: str) -> bool:
-    """Check Facebook Page Transparency for active ads via Playwright.
+    """Check Facebook Page Transparency for active ads.
 
-    Returns True if 'this page is currently running ads' is found.
+    Delegates to FacebookAdsClient — implementation in integrations/facebook_ads.py.
     """
-    try:
-        from playwright.sync_api import sync_playwright
-    except ImportError:
-        logger.warning("Playwright not installed — skipping FB transparency check")
-        return False
-
-    url = f"https://www.facebook.com/{fb_slug}/about_profile_transparency"
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(headless=True)
-            ctx = browser.new_context(
-                user_agent=(
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                    "AppleWebKit/537.36 (KHTML, like Gecko) "
-                    "Chrome/124.0.0.0 Safari/537.36"
-                )
-            )
-            page = ctx.new_page()
-            try:
-                page.goto(url, timeout=_FB_TIMEOUT, wait_until="domcontentloaded")
-                time.sleep(random.uniform(2, 4))
-                content = page.content().lower()
-                running = "this page is currently running ads" in content
-            finally:
-                browser.close()
-        logger.info("FB transparency [%s] running_ads=%s", fb_slug, running)
-        return running
-    except Exception as exc:
-        logger.debug("FB transparency failed for slug '%s': %s", fb_slug, exc)
-        return False
+    from integrations.facebook_ads import FacebookAdsClient
+    return FacebookAdsClient({}).page_transparency_check(fb_slug)
 
 
 # ── Partial score (threshold gate for Method 2) ────────────────────────────────

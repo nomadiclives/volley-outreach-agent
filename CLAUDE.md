@@ -555,71 +555,47 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 
 ## Pending Tasks
 
+_Last audited: 2026-05-31. Items marked ✅ are confirmed done in code._
+
 ### Fix Now — Before First Real Campaign
 
-These are bugs or gaps that make current output unreliable:
+All pre-campaign blockers are resolved:
 
-**1. Buying signals never populated (35pts always = 0)**
-Build `agents/buying_signal_checker.py`. Homepage pixel scan on all leads. Facebook Transparency check on leads scoring >40. Store in `buying_signals` JSON field. Connect to `_score_ad_spend()` and `_score_multi_location()` in lead_enricher.py.
-
-**2. Hunter confidence not a structured field**
-In `integrations/hunter.py`, extract confidence as integer field on the lead dict (not buried in notes string). Update hard gate check in lead_enricher.py to read `lead["hunter_confidence"]` correctly.
-
-**3. Google Sheets sync duplicates rows**
-Fix `integrations/google_sheets.py` — match on email as unique key, update row in place if found, insert only if new. Never append blindly. Do NOT run `python main.py sync` until this is fixed.
-
-**4. Spam filter blocks instead of warns**
-In `agents/copywriter.py`, if `_check_spam()` finds triggers, reject the draft and regenerate (up to 3 attempts). If still failing after 3 attempts, flag for human review — do not save and use.
-
-**5. Weekend cadence drift**
-In `core/scheduler.py`, when scheduling future steps, advance the target date forward to the next weekday if it falls on Saturday or Sunday. Log the adjustment.
-
-**6. Apollo CLI credit gate**
-Move credit check into `integrations/apollo.py` `search_people()` method directly — not just in the web routes. CLI `python main.py find` must also enforce the limit.
-
-**7. Hunter monthly limit never enforced**
-Add pre-call credit check in `integrations/hunter.py` — same pattern as Apollo.
+- ✅ **Buying signals** — `agents/buying_signal_checker.py` built. Homepage pixel scan + Facebook Transparency check wired into `lead_enricher.py` via `_score_ad_spend()` / `_score_multi_location()`.
+- ✅ **Hunter confidence structured** — `hunter_confidence` returned as int field in `integrations/hunter.py` (lines 52, 110). Hard gate in `lead_enricher.py` reads it correctly.
+- ✅ **Google Sheets no duplicates** — `sync_lead()` / `bulk_sync_leads()` use email as unique key; update in place, never blind-append.
+- ✅ **Spam filter regenerates** — `copywriter.py` retries up to 3 attempts; sets `spam_warning=True` after 3 failures for human review.
+- ✅ **Weekend cadence drift** — `scheduler.py` advances to next Monday when a scheduled send lands on Saturday or Sunday.
+- ✅ **Apollo CLI credit gate** — `check_and_spend("apollo")` lives inside `integrations/apollo.py`; enforced on CLI and web equally.
+- ✅ **Hunter monthly limit enforced** — `check_and_spend("hunter")` in `integrations/hunter.py` before every domain search.
 
 ### Build Next — Adds Real Capability
 
-**8. Two-phase lead finding architecture**
-Rebuild `agents/lead_finder.py` with Phase 1 (company discovery) and Phase 2 (contact resolution) separation. Implement pre-search dedup at all three levels (email, company+contact, domain). Add `core/credit_manager.py` for budget allocation.
+- ✅ **Two-phase lead finding** — `agents/lead_finder.py` implements Phase 1 (company discovery) and Phase 2 (contact resolution) with three-level pre-search dedup and `core/credit_manager.py` budget allocation.
+- ✅ **Lusha, Snov.io, GetProspect integrations** — all three built, credit-gated via `credit_manager`, log to `api_usage`.
+- ✅ **LinkedIn as Phase 2 fallback** — `linkedin_scraper.py` wired as final resolver in `lead_finder.py` (line 276); extracts name + title, passes to Hunter for email.
+- ✅ **Manual credit override Step 6** — wizard Step 6 shows live per-source credit panel; operator can override before starting run.
 
-**9. New integrations: Lusha, Snov.io, GetProspect**
-Build in this order:
-- `integrations/lusha.py` — 40 credits/month, strongest for European contacts
-- `integrations/snov.py` — 50 credits/month, email finder
-- `integrations/getprospect.py` — 50 credits/month, LinkedIn-based
-Each must hard-stop at monthly limit, log to api_usage table.
+- ✅ **Facebook Ad Library integration** — `integrations/facebook_ads.py` built. `FacebookAdsClient.search_advertisers(vertical)` wired as Phase 1 Source 3 in `lead_finder.py`; `page_transparency_check(slug)` wired into `buying_signal_checker._fb_transparency_check` (delegated, no duplicate Playwright code).
 
-**10. Facebook Ad Library integration**
-Build `integrations/facebook_ads.py` — Playwright scraper for Ad Library search by keyword/vertical + Facebook Page Transparency check. Feed results into buying_signals.
-
-**11. LinkedIn properly wired**
-Connect `integrations/linkedin_scraper.py` as the final fallback in Phase 2 contact resolution. Extract name + title, pass domain to Hunter for email.
-
-**12. Manual credit override on Step 6**
-Add credit budget panel to wizard Step 6 showing live per-source credit remaining. Allow operator to override per-source allocation before starting run. Default is automatic allocation from credit_manager.
-
-**13. Dashboard credit bank widget**
-Add live credit bank status to dashboard home — all sources, credits remaining this month, resets on 1st of month.
+**13. Dashboard credit bank widget** ← STILL MISSING
+`web/routes/dashboard.py` passes no credit data to the template. Add a credit bank panel to the dashboard home showing all sources (Apollo, Hunter, Lusha, Snov, GetProspect), credits remaining this month, and reset date. Pull data from `api_usage` table via `credit_manager`.
 
 ### Polish Later
 
-**14. Funnel chart in analytics**
-Found → Approved → Sent → Opened → Replied → Interested. Assemble funnel data in analytics.py route.
+**14. Funnel chart in analytics** ← STILL MISSING
+`analytics.py` has sent/opened/replied totals but no "Found" or "Approved" stage counts. Query leads table for counts by status per campaign, pass as funnel data to `analytics.html`.
 
-**15. Top subject lines by open rate**
-In analytics.py, query outreach_log joined to sequences, group by subject, rank by open rate.
+**15. Top subject lines by open rate** ← STILL MISSING
+In `analytics.py`, join `outreach_log` → `sequences`, group by `subject`, rank by `opened / sent`. Pass `top_subjects` list to template.
 
-**16. Per-lead score breakdown in detail modal**
-Verify lead_detail.html renders individual sub-scores visually, not just the total.
+- ✅ **Per-lead score breakdown in detail modal** — `lead_detail.html` renders all sub-scores individually (score_title, score_ad_spend, etc.) with max points shown.
 
-**17. AI reply classifier connected**
-In reply_handler.py, call `classify_reply_with_ai()` for ambiguous replies instead of defaulting to "human_unknown".
+**17. AI reply classifier connected** ← STILL MISSING
+`core/reply_handler.py` `classify_reply()` is rule-based only. Add a call to `classify_reply_with_ai()` (in `agents/reply_analyzer.py`) for messages that pass OOO/bounce checks but remain ambiguous. Default to HUMAN if AI call fails.
 
-**18. Warmup auto-switch logic**
-Increment `warmup_days_elapsed` daily in scheduler. Auto-advance warmup limits per schedule. Auto-switch to Gmail SMTP when warmup_active set to false.
+**18. Warmup auto-switch logic** ← STILL MISSING
+`core/scheduler.py` has no warmup handling. Add: increment `warmup_days_elapsed` in config daily, auto-advance `warmup_daily_limit` per the warmup schedule, auto-switch sending path when `warmup_active` is set to `false`.
 
 ### Pending Setup (not blocking code work)
 - Buy outreach domain (~€10) — needed before any emails can send

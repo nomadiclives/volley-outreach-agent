@@ -128,7 +128,7 @@ def _discover_companies(
         except Exception as e:
             logger.warning("Phase 1 Google Maps failed: %s", e)
 
-    # ── Source 3: Facebook Ad Library (graceful — integration not yet built) ──
+    # ── Source 3: Facebook Ad Library ────────────────────────────────────────
     try:
         from integrations.facebook_ads import FacebookAdsClient
         fb = FacebookAdsClient(config)
