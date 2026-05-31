@@ -273,35 +273,36 @@ def _resolve_contact(
         except Exception as e:
             logger.warning("Hunter domain_search failed for %s: %s", domain, e)
 
-    # ── 6. LinkedIn scraper → Hunter email finder ─────────────────────────────
-    if budget.get("hunter", 0) > 0:
+    # ── 6. LinkedIn people search → Hunter email_finder ──────────────────────
+    if budget.get("linkedin", 0) > 0 and budget.get("hunter", 0) > 0 and domain:
         try:
             from integrations.linkedin_scraper import scrape_company_people
             from integrations.hunter import HunterClient
 
-            li_url = company.get("linkedin_url", "")
-            if not li_url and domain:
-                slug = domain.split(".")[0]
-                li_url = f"https://www.linkedin.com/company/{slug}"
+            people = scrape_company_people(company_name, titles, limit=3)
+            budget["linkedin"] = max(0, budget["linkedin"] - 1)
 
-            people = scrape_company_people(li_url, titles, limit=3)
-            if people and domain:
+            if people:
                 hunter = HunterClient(config)
                 for person in people:
-                    contact = hunter.email_finder(
-                        domain,
-                        person.get("first_name", ""),
-                        person.get("last_name", ""),
-                    )
-                    if contact:
-                        budget["hunter"] -= 1
-                        merged = _merge({**person, **contact})
-                        if merged:
-                            return merged
-                        if budget.get("hunter", 0) <= 0:
-                            break
-        except CreditLimitReached:
-            budget["hunter"] = 0
+                    try:
+                        contact = hunter.email_finder(
+                            domain,
+                            person.get("first_name", ""),
+                            person.get("last_name", ""),
+                        )
+                        budget["hunter"] = max(0, budget["hunter"] - 1)
+                        if contact:
+                            merged = _merge({**person, **contact})
+                            if merged:
+                                return merged
+                    except CreditLimitReached:
+                        budget["hunter"] = 0
+                        break
+                    except Exception as exc:
+                        logger.debug("Hunter email_finder failed for %s: %s", company_name, exc)
+                    if budget.get("hunter", 0) <= 0:
+                        break
         except Exception as e:
             logger.warning("LinkedIn+Hunter failed for %s: %s", company_name, e)
 
@@ -339,6 +340,8 @@ def find_leads(
     # 2. Allocate credit budget (manual override or auto)
     credit_manager = CreditManager(config)
     budget = credit_manager.allocate_budget(limit, override=credit_budget)
+    # LinkedIn is free but Playwright-heavy — cap at 20 lookups per run
+    budget["linkedin"] = 20
     logger.info("Credit budget for this run: %s", budget)
 
     # 3. Phase 1 — Company Discovery
