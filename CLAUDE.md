@@ -582,6 +582,11 @@ _All items below confirmed working in code as of 2026-05-31._
 - ✅ Strategy generator — Claude Haiku, cost-tracked
 - ✅ Copywriter — 4-email plain-text sequence, spam filter with 3-attempt regeneration
 - ✅ All Claude calls go through `agents/claude_client.py` cost wrapper
+- ✅ Markdown code-fence stripping — all 4 agents that parse Claude JSON (`strategy_generator`, `reply_analyzer`, `icp_analyzer`, `copywriter`) strip ` ```json ` fences before `json.loads()`
+
+### Robustness / Bug Fixes
+- ✅ Lusha domain validation — `_is_valid_domain()` guard skips empty, spaced, dot-less, or bad-TLD strings before spending a credit; removed unreliable company-name fallback path
+- ✅ Credit limit error message — shows actual next reset date per provider instead of hardcoded "Resets on the 1st"
 
 ### Web Dashboard
 - ✅ 6-step ICP wizard with campaign summary and three action buttons
@@ -609,7 +614,7 @@ In `analytics.py`, join `outreach_log` → `sequences`, group by `subject`, rank
 `core/scheduler.py` has no warmup handling. Add: increment `warmup_days_elapsed` in config daily, auto-advance `warmup_daily_limit` per the warmup schedule, auto-switch sending path when `warmup_active` flips to `false`.
 
 ### Pending Setup (not blocking code work)
-- Update `credit_reset_day` in `config.yaml` for Lusha, Snov.io, GetProspect once signup dates are known
+- ~~Update `credit_reset_day` in `config.yaml` for Lusha, Snov.io, GetProspect~~ ✅ Done — all set to 29 (signed up 2026-05-29)
 - Buy outreach domain (~€10) — needed before any emails can send
 - Set up Cloudflare DNS (SPF, DKIM, DMARC, MX)
 - Sign up for Instantly free trial (email warmup)
@@ -654,7 +659,7 @@ python scripts/dns_checker.py --domain x    # Check DNS records
 
 ## Current Status & Next Steps
 
-_Updated: 2026-05-31_
+_Updated: 2026-06-01_
 
 ### Where things stand
 
