@@ -3,9 +3,19 @@
 Every integration must call CreditManager.check_and_spend(provider) before
 each API call. This is the single credit gate — never implement per-integration
 credit checks independently.
+
+Credit reset windows
+--------------------
+Apollo and Hunter reset on the 1st of each calendar month.
+Lusha, Snov.io, and GetProspect use a rolling 30-day window tied to the
+account signup date. The reset day is configured per-provider via
+`credit_reset_day` in config.yaml — set it to the day of the month you
+created your account (e.g. 15 if you signed up on the 15th).
 """
 
+import calendar
 import logging
+from datetime import date
 from core.database import log_api_usage, get_monthly_api_credits
 
 logger = logging.getLogger(__name__)
@@ -50,12 +60,56 @@ class CreditManager:
             self.config.get(section, {}).get(key, _DEFAULT_LIMITS.get(provider, 0))
         )
 
+    def get_reset_day(self, provider: str) -> int:
+        """Return the day-of-month on which this provider's credits reset (1–31)."""
+        section = _LIMIT_KEYS.get(provider, (provider, ""))[0]
+        return int(self.config.get(section, {}).get("credit_reset_day", 1))
+
+    def _billing_period_start(self, provider: str) -> date:
+        """Return the start date of the provider's current billing period."""
+        reset_day = self.get_reset_day(provider)
+        today = date.today()
+
+        # Clamp reset_day to a valid day in the target month
+        def _clamp(year: int, month: int) -> date:
+            last = calendar.monthrange(year, month)[1]
+            return date(year, month, min(reset_day, last))
+
+        this_month_reset = _clamp(today.year, today.month)
+        if today >= this_month_reset:
+            return this_month_reset
+        # Reset day hasn't arrived yet — billing period started last month
+        prev_month = today.month - 1 or 12
+        prev_year  = today.year if today.month > 1 else today.year - 1
+        return _clamp(prev_year, prev_month)
+
+    def _next_reset_date(self, provider: str) -> date:
+        """Return the date of the provider's next credit reset."""
+        reset_day = self.get_reset_day(provider)
+        today = date.today()
+
+        def _clamp(year: int, month: int) -> date:
+            last = calendar.monthrange(year, month)[1]
+            return date(year, month, min(reset_day, last))
+
+        this_month_reset = _clamp(today.year, today.month)
+        if today < this_month_reset:
+            return this_month_reset
+        next_month = today.month % 12 + 1
+        next_year  = today.year + (1 if today.month == 12 else 0)
+        return _clamp(next_year, next_month)
+
+    def days_until_reset(self, provider: str) -> int:
+        """Return calendar days until the provider's next credit reset."""
+        return (self._next_reset_date(provider) - date.today()).days
+
     def get_used(self, provider: str) -> int:
-        """Return credits consumed by provider in the current calendar month."""
-        return get_monthly_api_credits(provider)
+        """Return credits consumed by provider in the current billing period."""
+        period_start = self._billing_period_start(provider).isoformat()
+        return get_monthly_api_credits(provider, period_start=period_start)
 
     def get_remaining(self, provider: str) -> int:
-        """Return credits still available for provider this month."""
+        """Return credits still available for provider this billing period."""
         return max(0, self.get_limit(provider) - self.get_used(provider))
 
     def check_and_spend(
@@ -90,15 +144,18 @@ class CreditManager:
         )
 
     def get_all_balances(self) -> dict[str, dict]:
-        """Return {provider: {limit, used, remaining}} for all tracked sources."""
-        return {
-            p: {
-                "limit":     self.get_limit(p),
-                "used":      self.get_used(p),
-                "remaining": self.get_remaining(p),
+        """Return {provider: {limit, used, remaining, days_until_reset}} for all sources."""
+        result = {}
+        for p in _LIMIT_KEYS:
+            limit = self.get_limit(p)
+            used  = self.get_used(p)
+            result[p] = {
+                "limit":            limit,
+                "used":             used,
+                "remaining":        max(0, limit - used),
+                "days_until_reset": self.days_until_reset(p),
             }
-            for p in _LIMIT_KEYS
-        }
+        return result
 
     def allocate_budget(
         self,

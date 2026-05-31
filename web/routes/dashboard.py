@@ -1,6 +1,5 @@
 """Dashboard / home route."""
 
-from datetime import date
 from flask import Blueprint, render_template, current_app
 from core.database import (
     list_campaigns,
@@ -14,14 +13,6 @@ from core.credit_manager import CreditManager
 bp = Blueprint("dashboard", __name__)
 
 _PROVIDER_ORDER = ["apollo", "hunter", "lusha", "snov", "getprospect"]
-
-
-def _days_until_reset() -> int:
-    """Calendar days from today until the 1st of next month."""
-    today = date.today()
-    year  = today.year + 1 if today.month == 12 else today.year
-    month = 1             if today.month == 12 else today.month + 1
-    return (date(year, month, 1) - today).days
 
 
 @bp.route("/")
@@ -62,5 +53,4 @@ def index():
         human_replies=human_replies,
         total_leads=leads_count(),
         credit_bank=credit_bank,
-        days_until_reset=_days_until_reset(),
     )

@@ -64,9 +64,6 @@
   <div class="card" style="margin-bottom:20px;">
     <div class="section-header">
       <div class="section-title">Credit Bank</div>
-      <span style="font-size:0.78rem; color:var(--muted);">
-        Resets in <strong>{{ days_until_reset }}</strong> day{{ 's' if days_until_reset != 1 else '' }}
-      </span>
     </div>
     <table>
       <thead>
@@ -93,7 +90,9 @@
               <span style="font-weight:700; color:{{ text_color }}; min-width:28px; text-align:right;">{{ bal.remaining }}</span>
             </div>
           </td>
-          <td style="text-align:right; color:var(--muted); font-size:0.85rem; white-space:nowrap;">{{ days_until_reset }}d</td>
+          <td style="text-align:right; color:var(--muted); font-size:0.85rem; white-space:nowrap;">
+            {{ bal.days_until_reset }}d
+          </td>
         </tr>
         {% endfor %}
       </tbody>

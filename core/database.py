@@ -547,19 +547,28 @@ def log_api_usage(provider: str, model: str, purpose: str,
         )
 
 
-def get_monthly_api_credits(provider: str) -> int:
-    """Return credits/searches consumed by a provider in the current calendar month.
+def get_monthly_api_credits(provider: str, period_start: str | None = None) -> int:
+    """Return credits consumed by a provider in the current billing period.
 
-    Convention: each API call logs input_tokens = number of credits consumed
-    (1 per lead for Apollo; 1 per search call for Hunter).
+    period_start: ISO date string (YYYY-MM-DD) marking the start of the billing
+    period. When provided, counts all usage from that date forward. Falls back
+    to the current calendar month when omitted (legacy / Apollo / Hunter).
     """
     with db() as conn:
-        row = conn.execute(
-            """SELECT COALESCE(SUM(input_tokens), 0) FROM api_usage
-               WHERE provider = ?
-               AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')""",
-            (provider,),
-        ).fetchone()
+        if period_start:
+            row = conn.execute(
+                """SELECT COALESCE(SUM(input_tokens), 0) FROM api_usage
+                   WHERE provider = ?
+                   AND date(created_at) >= ?""",
+                (provider, period_start),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """SELECT COALESCE(SUM(input_tokens), 0) FROM api_usage
+                   WHERE provider = ?
+                   AND strftime('%Y-%m', created_at) = strftime('%Y-%m', 'now')""",
+                (provider,),
+            ).fetchone()
         return int(row[0])
 
 
