@@ -126,9 +126,10 @@ class CreditManager:
         used = self.get_used(provider)
         limit = self.get_limit(provider)
         if used + cost > limit:
+            reset = self._next_reset_date(provider)
             raise CreditLimitReached(
                 f"{provider} credit limit reached "
-                f"({used}/{limit} used this month). Resets on the 1st."
+                f"({used}/{limit} used this period). Resets {reset.isoformat()}."
             )
         log_api_usage(
             provider=provider,
