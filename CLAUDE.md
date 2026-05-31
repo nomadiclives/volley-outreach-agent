@@ -553,56 +553,67 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 
 ---
 
-## Pending Tasks
+## Completed Work
 
-_Last audited: 2026-05-31. Items marked ✅ are confirmed done in code._
+_All items below confirmed working in code as of 2026-05-31._
 
-### Fix Now — Before First Real Campaign
+### Core Infrastructure
+- ✅ SQLite schema, all CRUD, DB migrations
+- ✅ Background scheduler — weekday-aware, resumes from SQLite on Codespace restart
+- ✅ Human reply handler — polls Gmail every 15 min, sequence cancellation, 10/10 tests pass
+- ✅ Credit manager — single gate for all 5 paid sources; `check_and_spend()` in every integration
+- ✅ Per-provider billing period — `credit_reset_day` in config.yaml per source; Lusha/Snov/GetProspect use rolling window from signup day, Apollo/Hunter use calendar month
+- ✅ Pre-search dedup — 3 levels (email, company+contact, domain) before spending any credit
 
-All pre-campaign blockers are resolved:
+### Lead Finding
+- ✅ Two-phase architecture — Phase 1 (company discovery) → Phase 2 (contact resolution)
+- ✅ Phase 1 sources: Apollo, Google Maps, Facebook Ad Library
+- ✅ Phase 2 sources: Apollo cache (free) → Lusha → Snov.io → GetProspect → Hunter → LinkedIn+Hunter
+- ✅ All integrations: Apollo, Hunter, Lusha, Snov.io, GetProspect, LinkedIn scraper, Google Maps, Facebook Ads
+- ✅ Credit-aware budget allocation — auto or manual override from wizard Step 6
 
-- ✅ **Buying signals** — `agents/buying_signal_checker.py` built. Homepage pixel scan + Facebook Transparency check wired into `lead_enricher.py` via `_score_ad_spend()` / `_score_multi_location()`.
-- ✅ **Hunter confidence structured** — `hunter_confidence` returned as int field in `integrations/hunter.py` (lines 52, 110). Hard gate in `lead_enricher.py` reads it correctly.
-- ✅ **Google Sheets no duplicates** — `sync_lead()` / `bulk_sync_leads()` use email as unique key; update in place, never blind-append.
-- ✅ **Spam filter regenerates** — `copywriter.py` retries up to 3 attempts; sets `spam_warning=True` after 3 failures for human review.
-- ✅ **Weekend cadence drift** — `scheduler.py` advances to next Monday when a scheduled send lands on Saturday or Sunday.
-- ✅ **Apollo CLI credit gate** — `check_and_spend("apollo")` lives inside `integrations/apollo.py`; enforced on CLI and web equally.
-- ✅ **Hunter monthly limit enforced** — `check_and_spend("hunter")` in `integrations/hunter.py` before every domain search.
+### Buying Signals
+- ✅ Homepage pixel scan — Meta Pixel, Google Ads, GTM (including consent-wrapped `data-gtm-id`), TrustedForm, Jornaya, multi-location keywords
+- ✅ Facebook Page Transparency check — Playwright, gated at partial score > 40
+- ✅ Facebook Ad Library Phase 1 source — companies found here pre-populated with `running_ads: True`
 
-### Build Next — Adds Real Capability
+### AI & Copywriting
+- ✅ ICP analyzer — structured wizard inputs → Apollo search params
+- ✅ Strategy generator — Claude Haiku, cost-tracked
+- ✅ Copywriter — 4-email plain-text sequence, spam filter with 3-attempt regeneration
+- ✅ All Claude calls go through `agents/claude_client.py` cost wrapper
 
-- ✅ **Two-phase lead finding** — `agents/lead_finder.py` implements Phase 1 (company discovery) and Phase 2 (contact resolution) with three-level pre-search dedup and `core/credit_manager.py` budget allocation.
-- ✅ **Lusha, Snov.io, GetProspect integrations** — all three built, credit-gated via `credit_manager`, log to `api_usage`.
-- ✅ **LinkedIn as Phase 2 fallback** — `linkedin_scraper.py` wired as final resolver in `lead_finder.py` (line 276); extracts name + title, passes to Hunter for email.
-- ✅ **Manual credit override Step 6** — wizard Step 6 shows live per-source credit panel; operator can override before starting run.
+### Web Dashboard
+- ✅ 6-step ICP wizard with campaign summary and three action buttons
+- ✅ Wizard Step 6 credit budget panel — live balances, collapsible, auto/manual modes, override values passed to `find_leads()`
+- ✅ Dashboard credit bank widget — all 5 sources, used/remaining/limit, per-provider reset countdown, colour-coded bars
+- ✅ Campaigns, Leads, Sequences, Analytics routes
+- ✅ Per-lead score breakdown visible in `lead_detail.html`
+- ✅ Google Sheets sync — upsert on email key, no duplicates
 
-- ✅ **Facebook Ad Library integration** — `integrations/facebook_ads.py` built. `FacebookAdsClient.search_advertisers(vertical)` wired as Phase 1 Source 3 in `lead_finder.py`; `page_transparency_check(slug)` wired into `buying_signal_checker._fb_transparency_check` (delegated, no duplicate Playwright code).
+## Remaining Work
 
-**13. Dashboard credit bank widget** ← STILL MISSING
-`web/routes/dashboard.py` passes no credit data to the template. Add a credit bank panel to the dashboard home showing all sources (Apollo, Hunter, Lusha, Snov, GetProspect), credits remaining this month, and reset date. Pull data from `api_usage` table via `credit_manager`.
+### Polish / Nice-to-Have
+These don't block first campaign but improve operational visibility.
 
-### Polish Later
+**Funnel chart in analytics**
+`analytics.py` has sent/opened/replied totals but no Found or Approved stage counts. Query leads table for counts by status per campaign, pass as funnel data to `analytics.html` (Found → Approved → Sent → Opened → Replied → Interested).
 
-**14. Funnel chart in analytics** ← STILL MISSING
-`analytics.py` has sent/opened/replied totals but no "Found" or "Approved" stage counts. Query leads table for counts by status per campaign, pass as funnel data to `analytics.html`.
-
-**15. Top subject lines by open rate** ← STILL MISSING
+**Top subject lines by open rate**
 In `analytics.py`, join `outreach_log` → `sequences`, group by `subject`, rank by `opened / sent`. Pass `top_subjects` list to template.
 
-- ✅ **Per-lead score breakdown in detail modal** — `lead_detail.html` renders all sub-scores individually (score_title, score_ad_spend, etc.) with max points shown.
+**AI reply classifier for ambiguous messages**
+`core/reply_handler.py` `classify_reply()` is rule-based only. For messages that pass OOO/bounce checks but remain ambiguous, call `classify_reply_with_ai()` in `agents/reply_analyzer.py`. Default to HUMAN if the AI call fails.
 
-**17. AI reply classifier connected** ← STILL MISSING
-`core/reply_handler.py` `classify_reply()` is rule-based only. Add a call to `classify_reply_with_ai()` (in `agents/reply_analyzer.py`) for messages that pass OOO/bounce checks but remain ambiguous. Default to HUMAN if AI call fails.
-
-**18. Warmup auto-switch logic** ← STILL MISSING
-`core/scheduler.py` has no warmup handling. Add: increment `warmup_days_elapsed` in config daily, auto-advance `warmup_daily_limit` per the warmup schedule, auto-switch sending path when `warmup_active` is set to `false`.
+**Warmup auto-switch logic**
+`core/scheduler.py` has no warmup handling. Add: increment `warmup_days_elapsed` in config daily, auto-advance `warmup_daily_limit` per the warmup schedule, auto-switch sending path when `warmup_active` flips to `false`.
 
 ### Pending Setup (not blocking code work)
+- Update `credit_reset_day` in `config.yaml` for Lusha, Snov.io, GetProspect once signup dates are known
 - Buy outreach domain (~€10) — needed before any emails can send
-- Set up Cloudflare DNS (SPF, DKIM, DMARC, MX, Vercel CNAME)
-- Sign up for Instantly free trial (warmup)
-- Sign up for Lusha, Snov.io, GetProspect free tiers → get API keys
-- Share Google Sheet with service account email from credentials.json
+- Set up Cloudflare DNS (SPF, DKIM, DMARC, MX)
+- Sign up for Instantly free trial (email warmup)
+- Share Google Sheet with service account email from `credentials.json`
 - Run `python scripts/dns_checker.py --domain yourdomain.com`
 
 ### Open Decisions
@@ -638,3 +649,43 @@ python scripts/dns_checker.py --domain x    # Check DNS records
 - `--dry-run` flag available on find and send commands
 - Human reply detection tested against: OOO, bounce, interested reply, not interested reply, one-word reply, forwarded email
 - Web UI readable without JavaScript for core views (progressive enhancement)
+
+---
+
+## Current Status & Next Steps
+
+_Updated: 2026-05-31_
+
+### Where things stand
+
+The full lead-finding and outreach pipeline is built and code-complete. Every major component exists, is wired together, and has been verified to import cleanly. The system is ready to run its first real campaign as soon as the operational setup items below are complete.
+
+**What works right now (code):**
+- Run `python main.py` → Flask dashboard on localhost:5000 + background scheduler
+- 6-step ICP wizard → finds leads across 6 sources → scores them → generates 4-email sequence → approval flow → sends via Gmail SMTP
+- Credit tracking accurate per provider with correct billing windows
+- Human reply detection stops sequences immediately
+- Dashboard shows live credit bank, campaign status, and notifications
+
+**What's blocked on setup (not code):**
+1. **No outreach domain** — SPF/DKIM/DMARC can't be configured without a domain. Emails can't send. This is the single hardest blocker.
+2. **Einstiegsgeld meeting pending** — do not register Gewerbe before this is resolved.
+3. **`credit_reset_day` for Lusha/Snov/GetProspect** — set in `config.yaml` once signup dates are known. Currently defaults to 1 (safe but slightly inaccurate for rolling-window tools).
+
+### Immediate next steps (in order)
+
+1. **Resolve domain + Gewerbe decision** — everything else unblocks from here
+2. **Buy domain, configure Cloudflare DNS** — run `python scripts/dns_checker.py` to verify
+3. **Sign up for Instantly** (warmup) — set `instantly_api_key` and `instantly_campaign_id` in `config.yaml`
+4. **Share Google Sheet** with service account email from `credentials.json` — enables CRM sync
+5. **Run first campaign in dry-run mode** — `python main.py find --dry-run` to verify end-to-end without spending credits
+6. **Run first real campaign** — use the wizard, approve, watch the scheduler send
+
+### Remaining code work (low priority until setup is done)
+
+| Item | Effort | Value |
+|---|---|---|
+| Funnel chart in analytics | Small | Nice visibility |
+| Top subject lines by open rate | Small | Optimisation |
+| AI reply classifier for ambiguous replies | Medium | Reduces false negatives |
+| Warmup auto-switch logic | Medium | Removes manual config step |
