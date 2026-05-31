@@ -15,6 +15,29 @@ logger = logging.getLogger(__name__)
 BASE_URL = "https://api.lusha.com/v2"
 
 
+def _is_valid_domain(domain: str | None) -> bool:
+    """Return True only if domain looks like a real web domain.
+
+    Rejects: empty/None, strings with spaces (person names, city names),
+    strings with no dot, and strings whose TLD is not 2–6 alpha chars.
+    """
+    if not domain or not isinstance(domain, str):
+        return False
+    d = domain.strip().lower()
+    if not d or " " in d:
+        return False
+    parts = d.split(".")
+    if len(parts) < 2:
+        return False
+    tld = parts[-1]
+    if not tld.isalpha() or not (2 <= len(tld) <= 6):
+        return False
+    # Label before TLD must be at least 2 chars
+    if len(parts[-2]) < 2:
+        return False
+    return True
+
+
 class LushaClient:
     def __init__(self, config: dict):
         self.api_key = config.get("lusha", {}).get("api_key", "")
@@ -46,15 +69,16 @@ class LushaClient:
             logger.debug("Lusha API key not set — skipping")
             return None
 
+        if not _is_valid_domain(domain):
+            logger.debug(
+                "Lusha: skipping %s — domain %r failed validation",
+                company_name, domain,
+            )
+            return None
+
         self.credits.check_and_spend("lusha", purpose="contact_resolution")
 
-        payload: dict = {}
-        if domain:
-            payload["company"] = {"website": domain}
-        elif company_name:
-            payload["company"] = {"name": company_name}
-        else:
-            return None
+        payload: dict = {"company": {"website": domain.strip().lower()}}
 
         if target_titles:
             payload["jobTitles"] = target_titles[:5]
