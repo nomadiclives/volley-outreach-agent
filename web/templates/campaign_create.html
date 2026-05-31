@@ -562,34 +562,6 @@
           <div class="sum-row"><span class="sum-lbl">Titles</span><span id="sum-titles">—</span></div>
         </div>
 
-        <!-- Credit Budget Panel -->
-        <div class="budget-panel" id="budget-panel">
-          <div class="budget-panel-header" onclick="toggleBudgetPanel()">
-            <span class="bp-title">Credit Budget</span>
-            <span class="bp-mode" id="bp-mode-badge">Auto</span>
-          </div>
-          <div class="budget-panel-body" id="budget-body">
-            <div class="budget-mode-toggle">
-              <span style="color:var(--muted);">Allocation mode:</span>
-              <button type="button" id="btn-auto-mode" class="active" onclick="setBudgetMode('auto')">Auto</button>
-              <button type="button" id="btn-manual-mode" onclick="setBudgetMode('manual')">Manual override</button>
-            </div>
-            <div id="budget-rows">
-              <!-- Populated by loadCreditBalances() -->
-              <div style="font-size:0.8rem; color:var(--muted); padding:8px 0;">Loading credit balances…</div>
-            </div>
-            <div id="manual-hint" style="font-size:0.75rem; color:var(--muted); margin-top:8px; display:none;">
-              Enter how many credits to allocate per source for this campaign run. Leave blank to skip a source.
-            </div>
-            <!-- Hidden inputs submitted with the form -->
-            <input type="hidden" id="budget_apollo"      name="budget_apollo">
-            <input type="hidden" id="budget_lusha"       name="budget_lusha">
-            <input type="hidden" id="budget_snov"        name="budget_snov">
-            <input type="hidden" id="budget_getprospect" name="budget_getprospect">
-            <input type="hidden" id="budget_hunter"      name="budget_hunter">
-          </div>
-        </div>
-
         <!-- Lead limit + credits (shown for find-related actions) -->
         <div id="credits-warning" class="no-credits-warning">
           ⚠️ You have <strong>0 Apollo credits</strong> remaining this month. Lead finding is unavailable until the monthly counter resets. Use <em>Generate Strategy &amp; Sequence Only</em> in the meantime.
@@ -610,6 +582,34 @@
           </div>
           <div style="font-size:0.75rem; color:var(--muted); margin-top:6px;">
             Used by <em>Find Leads Only</em> and <em>Do Both</em>. Ignored for sequence-only generation.
+          </div>
+        </div>
+
+        <!-- Credit Budget Panel -->
+        <div class="budget-panel" id="budget-panel">
+          <div class="budget-panel-header" onclick="toggleBudgetPanel()">
+            <span class="bp-title">Credit Budget</span>
+            <span class="bp-mode" id="bp-mode-badge">Automatic allocation</span>
+          </div>
+          <div class="budget-panel-body" id="budget-body">
+            <div class="budget-mode-toggle">
+              <span style="color:var(--muted);">Allocation mode:</span>
+              <button type="button" id="btn-auto-mode" class="active" onclick="setBudgetMode('auto')">Auto</button>
+              <button type="button" id="btn-manual-mode" onclick="setBudgetMode('manual')">Manual override</button>
+            </div>
+            <div id="budget-rows">
+              <!-- Populated by loadCreditBalances() -->
+              <div style="font-size:0.8rem; color:var(--muted); padding:8px 0;">Loading credit balances…</div>
+            </div>
+            <div id="manual-hint" style="font-size:0.75rem; color:var(--muted); margin-top:8px; display:none;">
+              Enter how many credits to allocate per source for this run. Leave blank to skip a source entirely.
+            </div>
+            <!-- Hidden inputs submitted with the form -->
+            <input type="hidden" id="budget_apollo"      name="budget_apollo">
+            <input type="hidden" id="budget_lusha"       name="budget_lusha">
+            <input type="hidden" id="budget_snov"        name="budget_snov">
+            <input type="hidden" id="budget_getprospect" name="budget_getprospect">
+            <input type="hidden" id="budget_hunter"      name="budget_hunter">
           </div>
         </div>
 
@@ -827,10 +827,10 @@ function setBudgetMode(mode) {
   _budgetMode = mode;
   document.getElementById('btn-auto-mode').classList.toggle('active', mode === 'auto');
   document.getElementById('btn-manual-mode').classList.toggle('active', mode === 'manual');
-  document.getElementById('bp-mode-badge').textContent = mode === 'manual' ? 'Manual' : 'Auto';
+  document.getElementById('bp-mode-badge').textContent = mode === 'manual' ? 'Manual override' : 'Automatic allocation';
   document.getElementById('bp-mode-badge').className = 'bp-mode' + (mode === 'manual' ? ' manual' : '');
   document.getElementById('manual-hint').style.display = mode === 'manual' ? '' : 'none';
-  document.getElementById('budget-rows').classList.toggle('manual-mode', mode === 'manual');
+  document.getElementById('budget-body').classList.toggle('manual-mode', mode === 'manual');
 
   if (mode === 'auto') {
     // Clear manual hidden inputs when switching back to auto
