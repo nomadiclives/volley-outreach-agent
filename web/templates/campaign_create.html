@@ -616,6 +616,7 @@
         <!-- Three action cards -->
         <div class="action-cards">
           <button type="button" id="btn-find-leads" class="action-card"
+            data-action="/campaigns/find-leads"
             onclick="submitAs('/campaigns/find-leads')">
             <div class="ac-title">Find Leads Only</div>
             <div class="ac-desc">Searches Apollo, Hunter, and Google Maps. Scores and adds leads to the CRM. No emails generated.</div>
@@ -623,6 +624,7 @@
           </button>
 
           <button type="button" class="action-card"
+            data-action="/campaigns/generate-sequence"
             onclick="submitAs('/campaigns/generate-sequence')">
             <div class="ac-title">Generate Strategy &amp; Sequence Only</div>
             <div class="ac-desc">AI outreach strategy + full 4-email sequence from your wizard inputs. No leads fetched, no Apollo credits used.</div>
@@ -630,6 +632,7 @@
           </button>
 
           <button type="button" id="btn-do-both" class="action-card"
+            data-action="/campaigns/find-and-generate"
             onclick="submitAs('/campaigns/find-and-generate')">
             <div class="ac-title">Do Both</div>
             <div class="ac-desc">Finds and scores leads, then generates the strategy and full 4-email sequence in one go.</div>
@@ -944,7 +947,19 @@ document.addEventListener('DOMContentLoaded', function() {
 
 /* ─── Form submission — set action URL then submit ─── */
 function submitAs(actionUrl) {
-  const form = document.getElementById('wizard-form');
+  // Disable all cards and show spinner so user knows form was submitted
+  document.querySelectorAll('.action-card').forEach(function(btn) {
+    btn.setAttribute('disabled', 'disabled');
+  });
+  // Find the clicked card and show working state
+  var cards = document.querySelectorAll('.action-card');
+  cards.forEach(function(btn) {
+    if (btn.getAttribute('data-action') === actionUrl) {
+      var title = btn.querySelector('.ac-title');
+      if (title) title.textContent = '⏳ Working…';
+    }
+  });
+  var form = document.getElementById('wizard-form');
   form.action = actionUrl;
   form.submit();
 }

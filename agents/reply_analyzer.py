@@ -11,8 +11,8 @@ logger = logging.getLogger(__name__)
 def _strip_fences(text: str) -> str:
     """Remove markdown code fences that Claude sometimes wraps JSON in."""
     text = text.strip()
-    text = re.sub(r"^```(?:json)?\s*", "", text)
-    text = re.sub(r"\s*```$", "", text)
+    text = re.sub(r"^```(?:json)?\s*\n?", "", text)
+    text = re.sub(r"```[\s\S]*$", "", text)  # strip closing fence + any trailing content
     return text.strip()
 
 

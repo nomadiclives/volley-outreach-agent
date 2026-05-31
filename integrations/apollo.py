@@ -20,11 +20,14 @@ class ApolloClient:
         self.api_key = config["apollo"]["api_key"]
         self.credits = CreditManager(config)
         self.session = requests.Session()
-        self.session.headers.update({"Content-Type": "application/json", "Cache-Control": "no-cache"})
+        self.session.headers.update({
+            "Content-Type": "application/json",
+            "Cache-Control": "no-cache",
+            "X-Api-Key": self.api_key,
+        })
 
     @retry(stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=2, max=10))
     def _post(self, endpoint: str, payload: dict) -> dict:
-        payload["api_key"] = self.api_key
         resp = self.session.post(f"{BASE_URL}/{endpoint}", json=payload, timeout=30)
         if resp.status_code == 422:
             raise ValueError(f"Apollo validation error: {resp.text}")
