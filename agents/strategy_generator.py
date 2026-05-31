@@ -2,9 +2,19 @@
 
 import json
 import logging
+import re
 from agents.claude_client import claude_call
 
 logger = logging.getLogger(__name__)
+
+
+def _strip_fences(text: str) -> str:
+    """Remove markdown code fences that Claude sometimes wraps JSON in."""
+    text = text.strip()
+    text = re.sub(r"^```(?:json)?\s*", "", text)
+    text = re.sub(r"\s*```$", "", text)
+    return text.strip()
+
 
 # Informed by the sales-outbound-strategist agent: research-driven outreach,
 # signal-based prospecting, and the "research not volume" philosophy.
@@ -67,7 +77,7 @@ Generate the outreach strategy.
     )
 
     try:
-        result = json.loads(raw.strip())
+        result = json.loads(_strip_fences(raw))
         logger.info("Strategy generated: hook=%s", result.get("hook", "")[:80])
         return result
     except json.JSONDecodeError as e:
