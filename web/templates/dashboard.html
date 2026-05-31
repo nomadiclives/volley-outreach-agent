@@ -59,6 +59,47 @@
     </div>
   </div>
 
+  <!-- Credit Bank -->
+  {% set provider_names = {'apollo':'Apollo','hunter':'Hunter','lusha':'Lusha','snov':'Snov.io','getprospect':'GetProspect'} %}
+  <div class="card" style="margin-bottom:20px;">
+    <div class="section-header">
+      <div class="section-title">Credit Bank</div>
+      <span style="font-size:0.78rem; color:var(--muted);">
+        Resets in <strong>{{ days_until_reset }}</strong> day{{ 's' if days_until_reset != 1 else '' }}
+      </span>
+    </div>
+    <table>
+      <thead>
+        <tr>
+          <th>Source</th>
+          <th style="text-align:right;">Used this month</th>
+          <th>Remaining</th>
+          <th style="text-align:right;">Resets in</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for provider, bal in credit_bank.items() %}
+        {% set pct = ((bal.remaining / bal.limit) * 100)|round|int if bal.limit else 0 %}
+        {% set bar_color = '#22c55e' if pct > 50 else ('#f59e0b' if pct >= 20 else '#ef4444') %}
+        {% set text_color = 'var(--green)' if pct > 50 else ('var(--yellow)' if pct >= 20 else 'var(--red)') %}
+        <tr>
+          <td style="font-weight:600;">{{ provider_names.get(provider, provider) }}</td>
+          <td style="text-align:right; color:var(--muted); font-size:0.85rem;">{{ bal.used }} / {{ bal.limit }}</td>
+          <td>
+            <div style="display:flex; align-items:center; gap:8px;">
+              <div style="flex:1; height:5px; background:var(--border); border-radius:3px; min-width:80px; max-width:180px;">
+                <div style="height:100%; width:{{ pct }}%; background:{{ bar_color }}; border-radius:3px;"></div>
+              </div>
+              <span style="font-weight:700; color:{{ text_color }}; min-width:28px; text-align:right;">{{ bal.remaining }}</span>
+            </div>
+          </td>
+          <td style="text-align:right; color:var(--muted); font-size:0.85rem; white-space:nowrap;">{{ days_until_reset }}d</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
   <!-- Status breakdown + Campaigns -->
   <div class="grid grid-2" style="margin-bottom: 20px;">
     <div class="card">
