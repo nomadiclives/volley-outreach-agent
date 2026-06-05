@@ -9,8 +9,8 @@ Phase 2 — Contact & Email Resolution:
     For each company found in Phase 1, try sources in order until a verified
     email is found. Stop as soon as one source succeeds.
 
-    Order: Apollo cache (free) → Lusha → Snov.io → GetProspect → Hunter →
-           LinkedIn scraper + Hunter email finder
+    Order: Apollo cache (free) → Lusha → Snov.io → GetProspect →
+           People Data Labs → Hunter → LinkedIn scraper + Hunter email finder
 
 Pre-search deduplication (before spending any credits):
     L3 — domain:    skip company if any lead for this domain is already in DB
@@ -275,7 +275,26 @@ def _resolve_contact(
         except Exception as e:
             logger.warning("GetProspect failed for %s: %s", domain, e)
 
-    # ── 5. Hunter domain search ───────────────────────────────────────────────
+    # ── 5. People Data Labs ───────────────────────────────────────────────────
+    if budget.get("people_data_labs", 0) > 0 and domain:
+        try:
+            from integrations.people_data_labs import PeopleDataLabsClient
+            contacts = PeopleDataLabsClient(config).find_person(
+                domain=domain,
+                company=company_name,
+                target_titles=titles,
+            )
+            budget["people_data_labs"] -= 1
+            for contact in contacts:
+                result = _merge(contact)
+                if result:
+                    return result
+        except CreditLimitReached:
+            budget["people_data_labs"] = 0
+        except Exception as e:
+            logger.warning("PDL failed for %s: %s", domain, e)
+
+    # ── 6. Hunter domain search ───────────────────────────────────────────────
     if budget.get("hunter", 0) > 0 and domain:
         try:
             from integrations.hunter import HunterClient
@@ -297,7 +316,7 @@ def _resolve_contact(
         except Exception as e:
             logger.warning("Hunter domain_search failed for %s: %s", domain, e)
 
-    # ── 6. LinkedIn people search → Hunter email_finder ──────────────────────
+    # ── 7. LinkedIn people search → Hunter email_finder ──────────────────────
     if budget.get("linkedin", 0) > 0 and budget.get("hunter", 0) > 0 and domain:
         try:
             from integrations.linkedin_scraper import scrape_company_people

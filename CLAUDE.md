@@ -630,72 +630,122 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 
 ---
 
-## Build Status & Pending Tasks
+## Build Handover — Full Status Audit
 
-### Completed ✅
-- Core DB schema + CRUD (including directory_companies table)
-- Reply handler — human reply → sequence stops immediately (10/10 tests pass)
-- Background scheduler — weekday-aware, resumes from SQLite
-- ICP wizard (6-step), strategy generator, copywriter (4 emails)
-- Apollo, Hunter, Lusha, Snov.io, GetProspect integrations
-- Two-phase lead finder + pre-search dedup (3 levels)
-- Credit manager — centralised gate for all sources
-- Buying signal checker — homepage pixel scan + Facebook Transparency
-- Facebook Ad Library integration
-- LinkedIn scraper — wired as Phase 2 final fallback
-- Manual credit override panel on wizard Step 6
-- Dashboard credit bank widget
-- Flask dashboard — all routes, all templates
-- All Phase 5 fixes (buying signals, Sheets dedup, Hunter confidence, spam filter, credit gates, weekend drift)
-- JSON code fence parsing fix (all agents)
-- Apollo auth header fix (X-Api-Key header)
-- Wizard button loading state
+Last updated: 2026-06-05. Three columns: code is complete and verified | code is written but never run against a live system | not yet written.
 
-### Apollo Status — Important
-Apollo free tier does NOT include API access (returns 403). Apollo is kept in codebase as paid upgrade only. Do NOT call Apollo API on free tier.
+---
 
-### Build Next — Scrapers + UI fixes (current priority) 🎯
+### Column 1 — Built and complete ✅
 
-**A. Vertical directory scrapers** — see full prompt below
+**Core infrastructure**
+- SQLite schema + 50+ CRUD operations (`core/database.py`) — all tables including `directory_companies` and `send_queue`; additive migration on startup
+- Credit manager — centralised gate for all 6 API sources with rolling/calendar reset windows (`core/credit_manager.py`)
+- Pre-search deduplicator — 3-level: L1 email, L2 company+contact, L3 domain (`core/deduplicator.py`)
+- Email format + MX validator with DNS caching (`core/email_validator.py`)
+- Background send scheduler — weekday/time-window aware, resumes from SQLite on Codespaces restart (`core/scheduler.py`)
+- Human reply handler — IMAP poller, rule-based OOO/bounce/unsubscribe/human classifier, sequence cancellation, Sheets sync (`core/reply_handler.py`)
 
-**B. Language selection in wizard**
-Add language dropdown to Step 2 of ICP wizard. Auto-detect from country selection (Germany/Austria/Switzerland → German, UK/US/AU/CA → English, etc.) but allow manual override. Pass selected language to strategy_generator.py and copywriter.py — all generated content must be in the selected language. Store language on the campaign record in SQLite.
+**Agents**
+- ICP analyzer — legacy free-text path + structured 6-step wizard path; JSON validation, fence stripping (`agents/icp_analyzer.py`)
+- Lead finder — full two-phase orchestrator: Phase 1 (scrapers → Apollo → Maps → FB Ads), Phase 2 (7-source resolution chain), buying signal injection, enrich pipeline, DB + Sheets save (`agents/lead_finder.py`)
+- Lead enricher — deterministic 7-criterion scoring (title 20 + company_size 15 + multi_location 15 + ad_spend 20 + ltv_vertical 15 + marketing_roles 10 + data_completeness 5); hard auto-reject gates; rationale builder (`agents/lead_enricher.py`)
+- Buying signal checker — homepage pixel scan (Meta/Google Ads/GTM/TrustedForm/Jornaya) + Facebook Page Transparency Playwright check (`agents/buying_signal_checker.py`)
+- Strategy generator — Claude-powered JSON outreach strategy, multi-language (`agents/strategy_generator.py`)
+- Copywriter — 4-email SPIN sequence (80/70/100/30 words), spam-trigger filter, unsubscribe footer, multi-language with translated footer (`agents/copywriter.py`)
+- Reply analyzer — AI classification with rule-based fallback, thread reconstruction, quoted-text stripping (`agents/reply_analyzer.py`)
+- Claude client — cost wrapper for all Anthropic API calls; monthly $4 budget enforcement; `api_usage` logging (`agents/claude_client.py`)
 
-Files: `web/templates/campaigns.html`, `web/routes/campaigns.py`, `agents/strategy_generator.py`, `agents/copywriter.py`, `core/database.py` (add language column to campaigns table)
+**Integrations**
+- Apollo.io — people search with full parameter mapping; **PAID UPGRADE ONLY** (free tier returns 403, intentionally no-ops) (`integrations/apollo.py`)
+- Hunter.io — domain search + name-based email finder + verify; confidence threshold 70 (`integrations/hunter.py`)
+- Google Maps — Places API text search for company discovery (`integrations/google_maps.py`)
+- Google Sheets — bidirectional CRM sync, email-key upsert, no duplicates (`integrations/google_sheets.py`)
+- Gmail SMTP — full email construction with headers, threading, retry (`integrations/gmail_smtp.py`)
 
-**C. Campaign delete/archive in dashboard**
-Add a Delete button to each campaign row in the Campaigns table. Drafts and pending_approval campaigns can be hard-deleted. Active/completed campaigns should be archived (status = 'archived') not deleted, to preserve outreach history. Archived campaigns hidden from main view by default, with a toggle to show them. Add confirmation dialog before any delete/archive action.
+**Scrapers**
+- Base scraper — Playwright lifecycle, 7-day result caching, user-agent rotation, retry, standard output format (`scrapers/base_scraper.py`)
+- All 5 vertical scrapers — pagination, lazy-load scroll, domain extraction, dedup, graceful fallback selectors: `solar_de.py` (BSW-Solar), `solar_uk.py` (Solar Energy UK), `home_improvement_uk.py` (FMB), `finance_uk.py` (NACFB), `finance_de.py` (BdB)
+- Scraper registry and ICP-to-scraper routing (`scrapers/__init__.py`)
 
-Files: `web/templates/campaigns.html`, `web/routes/campaigns.py`, `core/database.py`
+**Web dashboard**
+- Flask factory + all 6 blueprints registered (`web/app.py`, `web/routes/api.py`)
+- Dashboard — stats, notifications, credit bank widget, warmup status (`web/routes/dashboard.py`)
+- Campaigns — 6-step ICP wizard, strategy + sequence generation, approval flow, delete/archive with confirmation, "Show archived" toggle (`web/routes/campaigns.py`)
+- Leads — CRM table, score breakdown, filters, bulk approve/reject, CSV export, outreach history modal (`web/routes/leads.py`)
+- Sequences — inline email editor, spam-trigger validator, token checker, status-gated edits (`web/routes/sequences.py`)
+- Analytics — funnel stats, daily send chart (Chart.js), subject line rates, API cost breakdown (`web/routes/analytics.py`)
+- All 9 Jinja2 templates — dark sidebar, white content, vanilla CSS (`web/templates/`)
+- Language selection — Step 2 dropdown, auto-detect from country, stored on `campaigns.language` column
 
-Claude Code prompt for B + C:
-> "Make two UI changes. First (language selection): add a language dropdown to Step 2 of the ICP wizard with options: English, German, French, Dutch, Spanish, Italian, Portuguese, Other. Auto-detect the default language from the country selection (Germany/Austria/Switzerland → German, UK/US/AU/NL → English/Dutch as appropriate) but allow manual override. Store the selected language on the campaign record — add a language column to the campaigns table in database.py. Pass the language to strategy_generator.py and copywriter.py so all generated strategy text and all 4 emails are written entirely in the selected language. The unsubscribe footer must also be translated into the campaign language. Second (campaign deletion): add a Delete button to each row in the Campaigns table. Draft and pending_approval campaigns are hard-deleted with a confirmation dialog. Active, paused, and completed campaigns are soft-archived (status set to 'archived') not deleted, to preserve outreach history. Add a 'Show archived' toggle above the campaigns table that shows/hides archived campaigns. Default view hides archived."
-> "Create a new directory `scrapers/` in the project. Build a base class `scrapers/base_scraper.py` with shared Playwright setup, rate limiting (2-5 second delays), retry logic, and a standard output format: list of dicts with company_name, domain, country, vertical, source_url. Then build the following vertical scrapers, each as a separate file:
->
-> 1. `scrapers/solar_de.py` — scrape BSW-Solar member directory at https://www.solarwirtschaft.de/verbraucher/mitglieder/ — extract company names and websites
-> 2. `scrapers/solar_uk.py` — scrape Solar Energy UK member directory at https://solarenergyuk.org/membership/our-members/ — extract company names and websites
-> 3. `scrapers/home_improvement_uk.py` — scrape FMB (Federation of Master Builders) directory at https://www.fmb.org.uk/find-a-builder/ — search by trade category, extract company names and websites
-> 4. `scrapers/finance_uk.py` — scrape NACFB member directory at https://www.nacfb.org/find-a-broker/ — extract broker company names and websites
-> 5. `scrapers/finance_de.py` — scrape BdB member directory at https://bankenverband.de/mitglieder/ — extract company names and websites
->
-> Wire all scrapers into `agents/lead_finder.py` Phase 1 company discovery as a new source type 'directory_scraper'. Run scrapers at campaign start if the vertical matches — solar campaigns use solar scrapers, finance campaigns use finance scrapers. Store discovered companies in the `directory_companies` SQLite table to avoid re-scraping same directory within 7 days. Add CLI command `python main.py scrape --vertical solar --geo de` to run scrapers manually. Each scraper must handle: pagination, missing data gracefully, bot detection (randomise user agent, delays), and log results to the standard logger."
+**Other**
+- Open tracking pixel (`tracking/pixel.py`)
+- First-time setup wizard (`scripts/setup.py`)
+- DNS record checker — SPF/DKIM/DMARC/MX (`scripts/dns_checker.py`)
+- CLI entry point — all commands: default (server+scheduler), `find`, `scrape`, `sync`, `status`, `pause`, `resume`, `export` (`main.py`)
 
-### Polish Later (needs real campaign data first)
-- Funnel chart in analytics (Found → Approved → Sent → Opened → Replied → Interested)
-- Top subject lines by open rate
-- AI reply classifier for ambiguous replies
-- Warmup auto-switch logic (increment warmup_days_elapsed daily)
+---
 
-### Pending Setup (blocking email sending)
-- Buy outreach domain (~€10) — **single biggest real-world blocker**
-- Set up Cloudflare DNS (SPF, DKIM, DMARC, MX, Vercel CNAME)
-- Sign up for Instantly free trial (warmup)
-- Share Google Sheet with service account email from credentials.json
-- Run `python scripts/dns_checker.py --domain yourdomain.com`
+### Column 2 — Built but not yet tested against live systems ⚠️
 
-### Open Decisions
-- Final brand/domain name (ProspectCore GbR dissolution in progress — one partner confirmed, one pending)
-- Einstiegsgeld meeting pending — do NOT register Gewerbe before then
+These modules are code-complete but have never been exercised with real credentials, real network traffic, or real HTML page structures. They may work on first run or may need selector/auth fixes.
+
+| Module | What needs live testing | Risk |
+|---|---|---|
+| `integrations/people_data_labs.py` | PDL Person Search + Company Enrich API — API key just wired in, no real call made yet | Low — standard REST API, PDL docs are stable |
+| `integrations/lusha.py` | Lusha API v2 — credentials in config, no real contact lookup run | Low — REST API |
+| `integrations/snov.py` | Snov.io OAuth2 token flow + domain search — credentials in config, not exercised | Medium — OAuth token refresh is the likely failure point |
+| `integrations/getprospect.py` | GetProspect domain search — API key in config, not exercised | Low — simple REST API |
+| `integrations/instantly.py` | Warmup status check + pool addition — free trial not started | Medium — depends on trial activation |
+| `integrations/linkedin_scraper.py` | Playwright public people search — bot detection, LinkedIn layout changes | High — LinkedIn actively blocks scrapers; user-agent rotation may not be enough |
+| `integrations/facebook_ads.py` | Playwright Ad Library + Page Transparency — page structure can change, cookie-consent pop-up handling | Medium — consent overlay handling is brittle |
+| `integrations/google_maps.py` | Places API — key not yet filled in `config.yaml` | Low — well-documented API |
+| `integrations/google_sheets.py` | CRM sync — service account credentials.json not yet shared with the target spreadsheet | Low — auth works once credentials.json is placed and sheet is shared |
+| `scrapers/solar_de.py` | BSW-Solar actual page — CSS selectors are best-guess; real structure may differ | Medium — selector list has fallbacks but real-page structure unknown |
+| `scrapers/solar_uk.py` | Solar Energy UK actual page | Medium |
+| `scrapers/home_improvement_uk.py` | FMB builder finder — uses search interaction | Medium-High — dynamic search UI is harder to scrape reliably |
+| `scrapers/finance_uk.py` | NACFB broker finder — iterates specialist areas | Medium-High |
+| `scrapers/finance_de.py` | BdB member directory | Medium |
+| `core/reply_handler.py` + `core/scheduler.py` | Full email send → reply cycle — no live email flow has ever run | High — end-to-end only testable once domain + DNS + warmup are live |
+| `agents/copywriter.py` (non-English) | German/French/Dutch/Spanish/Italian/Portuguese output — code supports it, no real output reviewed | Medium — Claude follows language instruction well but footer translations untested |
+| `tracking/pixel.py` | Open event recording — needs a live hosted URL to embed in emails | Low once domain is live |
+| Analytics charts | Chart.js funnel + time-series — needs real campaign data to render non-empty | Low — renders empty gracefully |
+
+---
+
+### Column 3 — Not yet built ❌
+
+| Feature | Where it belongs | Notes |
+|---|---|---|
+| Funnel chart (Found → Approved → Sent → Opened → Replied → Interested) | `web/routes/analytics.py` + `analytics.html` | Data queries exist; Chart.js frontend wiring not done |
+| Top subject lines by open rate | `web/routes/analytics.py` | Needs real opened_at data before it's meaningful |
+| AI reply classifier upgrade | `agents/reply_analyzer.py` | Rule-based fallback works; AI path exists but ambiguous replies (e.g. "maybe later") not confidently classified |
+| Warmup auto-increment | `core/scheduler.py` | `warmup_days_elapsed` in config is manually set; daily auto-increment not implemented |
+| Apollo paid activation toggle | `integrations/apollo.py` | Currently always raises 403; needs a `paid_tier: true` config flag to re-enable real API calls |
+| Test suite | `tests/` (doesn't exist) | Zero test files anywhere in the repo — no unit, integration, or end-to-end tests |
+| A/B sequence split-test runner | `core/scheduler.py` + `web/routes/campaigns.py` | Strategy JSON includes A/B ideas but no infrastructure to send variant A to half the list |
+| Lead import from CSV | `web/routes/leads.py` | No manual upload path — leads only come from automated Phase 1/2 discovery |
+| Config.yaml validation on startup | `main.py` or `scripts/setup.py` | No schema check; missing keys cause runtime errors with unclear messages |
+
+---
+
+### Real-world blockers (not code — nothing to build until these are resolved)
+
+| Blocker | Unblocks |
+|---|---|
+| Buy outreach domain (~€10) — **single biggest blocker** | Everything email-related |
+| Set up Cloudflare DNS — SPF, DKIM, DMARC, MX, pixel CNAME | Email deliverability, open tracking |
+| Sign up for Instantly.ai free trial | Inbox warmup (weeks 1–4) |
+| Share Google Sheet with service account email from `credentials.json` | CRM sync |
+| Run `python scripts/dns_checker.py --domain yourdomain.com` | DNS verification |
+| Einstiegsgeld meeting — do NOT register Gewerbe before this | Legal/business entity |
+| Finalise brand/domain name — ProspectCore GbR dissolution in progress (one partner pending) | Domain purchase |
+
+---
+
+### Apollo status reminder
+
+Apollo free tier does NOT include API access — returns 403. Apollo code is kept in the codebase as a paid upgrade path (~$49/month for Basic). Do not attempt to activate Apollo until the paid plan is purchased. All other Phase 2 sources (Lusha, Snov.io, GetProspect, PDL, Hunter) work on free tiers.
 
 ---
 

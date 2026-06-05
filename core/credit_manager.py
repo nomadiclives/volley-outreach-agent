@@ -22,19 +22,21 @@ logger = logging.getLogger(__name__)
 
 # Maps provider name → (config section, config key) for monthly limits
 _LIMIT_KEYS: dict[str, tuple[str, str]] = {
-    "apollo":      ("apollo",      "monthly_credit_limit"),
-    "hunter":      ("hunter",      "monthly_search_limit"),
-    "lusha":       ("lusha",       "monthly_credit_limit"),
-    "snov":        ("snov",        "monthly_credit_limit"),
-    "getprospect": ("getprospect", "monthly_credit_limit"),
+    "apollo":            ("apollo",            "monthly_credit_limit"),
+    "hunter":            ("hunter",            "monthly_search_limit"),
+    "lusha":             ("lusha",             "monthly_credit_limit"),
+    "snov":              ("snov",              "monthly_credit_limit"),
+    "getprospect":       ("getprospect",       "monthly_credit_limit"),
+    "people_data_labs":  ("people_data_labs",  "monthly_credit_limit"),
 }
 
 _DEFAULT_LIMITS: dict[str, int] = {
-    "apollo":      75,
-    "hunter":      50,
-    "lusha":       40,
-    "snov":        50,
-    "getprospect": 50,
+    "apollo":           75,
+    "hunter":           50,
+    "lusha":            40,
+    "snov":             50,
+    "getprospect":      50,
+    "people_data_labs": 100,
 }
 
 
