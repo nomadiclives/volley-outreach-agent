@@ -2,6 +2,17 @@
 {% block title %}Campaigns{% endblock %}
 
 {% block body %}
+<style>
+  .archived-row { opacity: 0.45; }
+  .archived-row td { color: var(--muted); }
+  .btn-delete {
+    border-color: var(--red); color: var(--red);
+    background: transparent;
+  }
+  .btn-delete:hover { background: var(--red); color: #fff; }
+  .archived-badge { background: #e5e7eb; color: #6b7280; }
+</style>
+
 <div class="topbar">
   <h1>Campaigns</h1>
   <div class="topbar-actions">
@@ -10,8 +21,24 @@
 </div>
 
 <div class="content">
+  {% set active_campaigns   = campaigns | rejectattr('status', 'equalto', 'archived') | list %}
+  {% set archived_campaigns = campaigns | selectattr('status', 'equalto', 'archived') | list %}
+
   {% if campaigns %}
   <div class="card">
+
+    <!-- toolbar: archived toggle -->
+    {% if archived_campaigns %}
+    <div style="display:flex; justify-content:flex-end; align-items:center; gap:8px;
+                padding:10px 0 14px; border-bottom:1px solid var(--border); margin-bottom:2px;">
+      <span style="font-size:0.8rem; color:var(--muted);" id="archived-label">
+        {{ archived_campaigns | length }} archived campaign{{ 's' if archived_campaigns | length != 1 }}
+      </span>
+      <button type="button" id="btn-toggle-archived"
+        class="btn btn-outline btn-sm" onclick="toggleArchived()">Show archived</button>
+    </div>
+    {% endif %}
+
     <table>
       <thead>
         <tr>
@@ -23,8 +50,15 @@
       <tbody>
         {% for c in campaigns %}
         {% set s = stats.get(c.id, {}) %}
-        <tr>
-          <td><a href="/campaigns/{{ c.id }}" style="color:var(--accent); text-decoration:none; font-weight:500;">{{ c.name }}</a></td>
+        {% set is_archived = c.status == 'archived' %}
+        <tr{% if is_archived %} class="archived-row"{% endif %}>
+          <td>
+            {% if is_archived %}
+              <span style="font-weight:500;">{{ c.name }}</span>
+            {% else %}
+              <a href="/campaigns/{{ c.id }}" style="color:var(--accent); text-decoration:none; font-weight:500;">{{ c.name }}</a>
+            {% endif %}
+          </td>
           <td>{{ c.vertical or '—' }}</td>
           <td>
             {% if c.status == 'active' %}<span class="badge badge-green">active</span>
@@ -32,6 +66,7 @@
             {% elif c.status == 'paused' %}<span class="badge badge-orange">paused</span>
             {% elif c.status == 'completed' %}<span class="badge badge-blue">completed</span>
             {% elif c.status == 'draft' %}<span class="badge badge-gray">draft</span>
+            {% elif c.status == 'archived' %}<span class="badge archived-badge">archived</span>
             {% else %}<span class="badge badge-gray">{{ c.status }}</span>{% endif %}
           </td>
           <td>{{ s.get('total_leads', 0) }}</td>
@@ -40,25 +75,48 @@
           <td>{{ s.get('reply_rate', 0) }}%</td>
           <td style="color:var(--muted); font-size:0.8rem;">{{ c.created_at[:10] if c.created_at else '—' }}</td>
           <td>
-            <div style="display:flex; gap:4px;">
-              <a href="/campaigns/{{ c.id }}" class="btn btn-outline btn-sm">View</a>
-              {% if c.status == 'active' %}
-              <form method="post" action="/campaigns/{{ c.id }}/pause" style="display:inline;">
-                <button class="btn btn-outline btn-sm" type="submit">Pause</button>
-              </form>
-              {% elif c.status == 'paused' %}
-              <form method="post" action="/campaigns/{{ c.id }}/resume" style="display:inline;">
-                <button class="btn btn-success btn-sm" type="submit">Resume</button>
-              </form>
-              {% elif c.status == 'pending_approval' %}
-              <a href="/campaigns/{{ c.id }}" class="btn btn-primary btn-sm">Review</a>
+            <div style="display:flex; gap:4px; flex-wrap:wrap;">
+              {% if not is_archived %}
+                <a href="/campaigns/{{ c.id }}" class="btn btn-outline btn-sm">View</a>
+                {% if c.status == 'active' %}
+                <form method="post" action="/campaigns/{{ c.id }}/pause" style="display:inline;">
+                  <button class="btn btn-outline btn-sm" type="submit">Pause</button>
+                </form>
+                {% elif c.status == 'paused' %}
+                <form method="post" action="/campaigns/{{ c.id }}/resume" style="display:inline;">
+                  <button class="btn btn-success btn-sm" type="submit">Resume</button>
+                </form>
+                {% elif c.status == 'pending_approval' %}
+                <a href="/campaigns/{{ c.id }}" class="btn btn-primary btn-sm">Review</a>
+                {% endif %}
               {% endif %}
+
+              <!-- Delete / Archive button -->
+              <form id="del-{{ c.id }}" method="post"
+                action="/campaigns/{{ c.id }}/delete" style="display:inline;">
+                <button type="button" class="btn btn-sm btn-delete"
+                  data-name="{{ c.name | e }}"
+                  data-status="{{ c.status }}"
+                  data-form="del-{{ c.id }}"
+                  onclick="confirmDelete(this)">
+                  {% if c.status in ('draft', 'pending_approval') %}Delete{% else %}Archive{% endif %}
+                </button>
+              </form>
             </div>
           </td>
         </tr>
         {% endfor %}
       </tbody>
     </table>
+
+    {% if not active_campaigns %}
+    <div style="text-align:center; padding:32px; color:var(--muted); font-size:0.875rem;">
+      No active campaigns.
+      <a href="/campaigns/create" style="color:var(--accent);">Create one</a>
+      {% if archived_campaigns %} or <a href="#" onclick="toggleArchived(); return false;" style="color:var(--accent);">show archived</a>.{% endif %}
+    </div>
+    {% endif %}
+
   </div>
   {% else %}
   <div class="card" style="text-align:center; padding:48px;">
@@ -67,4 +125,40 @@
   </div>
   {% endif %}
 </div>
+
+<script>
+/* ─── Archived row toggle ─── */
+let _showArchived = false;
+
+function toggleArchived() {
+  _showArchived = !_showArchived;
+  document.querySelectorAll('.archived-row').forEach(function(row) {
+    row.style.display = _showArchived ? '' : 'none';
+  });
+  const btn = document.getElementById('btn-toggle-archived');
+  if (btn) {
+    btn.textContent = _showArchived ? 'Hide archived' : 'Show archived';
+  }
+}
+
+/* Hide archived rows on initial load */
+document.addEventListener('DOMContentLoaded', function() {
+  document.querySelectorAll('.archived-row').forEach(function(row) {
+    row.style.display = 'none';
+  });
+});
+
+/* ─── Delete / Archive confirmation ─── */
+function confirmDelete(btn) {
+  const name   = btn.dataset.name;
+  const status = btn.dataset.status;
+  const isDeletable = status === 'draft' || status === 'pending_approval';
+  const msg = isDeletable
+    ? 'Permanently delete "' + name + '"?\n\nThis removes the campaign, all email sequences, and outreach records. This cannot be undone.'
+    : 'Archive "' + name + '"?\n\nThe campaign will be hidden from the main view. All outreach history is preserved and can be restored.';
+  if (confirm(msg)) {
+    document.getElementById(btn.dataset.form).submit();
+  }
+}
+</script>
 {% endblock %}

@@ -5,7 +5,7 @@ import logging
 import threading
 from flask import Blueprint, render_template, request, redirect, url_for, flash, jsonify, current_app
 from core.database import (
-    list_campaigns, get_campaign, update_campaign_status,
+    list_campaigns, get_campaign, update_campaign_status, delete_campaign,
     get_sequences, campaign_stats, list_leads, insert_campaign,
     update_campaign_strategy, get_apollo_credits_used, link_lead_to_campaign,
 )
@@ -80,6 +80,8 @@ def _parse_wizard_form(form) -> tuple[dict, list[str]]:
     if errors:
         return {}, errors
 
+    language = form.get("language", "English").strip() or "English"
+
     geo_str = ", ".join(geo_countries)
     if geo_cities:
         geo_str += f" ({geo_cities})"
@@ -97,6 +99,7 @@ def _parse_wizard_form(form) -> tuple[dict, list[str]]:
         "lead_limit":      lead_limit,
         "geo_str":         geo_str,
         "name":            name,
+        "language":        language,
         "credit_budget":   budget_override or None,
     }
     return wizard_data, []
@@ -164,6 +167,27 @@ def reject(campaign_id: int):
     update_campaign_status(campaign_id, "draft")
     flash("Campaign rejected — returned to draft.", "info")
     return redirect(url_for("campaigns.detail", campaign_id=campaign_id))
+
+
+@bp.route("/campaigns/<int:campaign_id>/delete", methods=["POST"])
+def delete(campaign_id: int):
+    """Hard-delete draft/pending campaigns; soft-archive everything else."""
+    campaign = get_campaign(campaign_id)
+    if not campaign:
+        flash("Campaign not found", "error")
+        return redirect(url_for("campaigns.index"))
+
+    status = campaign["status"]
+    name = campaign["name"]
+
+    if status in ("draft", "pending_approval"):
+        delete_campaign(campaign_id)
+        flash(f"Campaign '{name}' permanently deleted.", "success")
+    else:
+        update_campaign_status(campaign_id, "archived")
+        flash(f"Campaign '{name}' archived.", "info")
+
+    return redirect(url_for("campaigns.index"))
 
 
 @bp.route("/campaigns/<int:campaign_id>/pause", methods=["POST"])
@@ -245,6 +269,7 @@ def find_leads_route():
             "icp_description": icp_description,
             "vertical":        wizard_data["vertical"],
             "geo":             wizard_data["geo_str"],
+            "language":        wizard_data["language"],
             "strategy_json":   None,
             "status":          "draft",
         })
@@ -293,18 +318,20 @@ def generate_sequence_route():
 
         icp_description = wizard_to_icp_text(wizard_data)
         icp_data = analyze_icp_from_wizard(wizard_data, config)
-        strategy = generate_strategy(icp_data, wizard_data["name"], config)
+        language = wizard_data["language"]
+        strategy = generate_strategy(icp_data, wizard_data["name"], config, language=language)
 
         campaign_id = insert_campaign({
             "name":            wizard_data["name"],
             "icp_description": icp_description,
             "vertical":        wizard_data["vertical"],
             "geo":             wizard_data["geo_str"],
+            "language":        language,
             "strategy_json":   json.dumps(strategy),
             "status":          "pending_approval",
         })
 
-        generate_sequence(campaign_id, strategy, icp_data, config)
+        generate_sequence(campaign_id, strategy, icp_data, config, language=language)
 
         flash(
             f"Strategy and 4-email sequence generated for '{wizard_data['name']}'. "
@@ -344,18 +371,20 @@ def find_and_generate_route():
 
         icp_description = wizard_to_icp_text(wizard_data)
         icp_data = analyze_icp_from_wizard(wizard_data, config)
-        strategy = generate_strategy(icp_data, wizard_data["name"], config)
+        language = wizard_data["language"]
+        strategy = generate_strategy(icp_data, wizard_data["name"], config, language=language)
 
         campaign_id = insert_campaign({
             "name":            wizard_data["name"],
             "icp_description": icp_description,
             "vertical":        wizard_data["vertical"],
             "geo":             wizard_data["geo_str"],
+            "language":        language,
             "strategy_json":   json.dumps(strategy),
             "status":          "pending_approval",
         })
 
-        generate_sequence(campaign_id, strategy, icp_data, config)
+        generate_sequence(campaign_id, strategy, icp_data, config, language=language)
         leads = find_leads(
             icp_description, config,
             limit=lead_limit,

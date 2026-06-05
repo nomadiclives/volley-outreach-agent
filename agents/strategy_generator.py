@@ -50,7 +50,7 @@ Required format:
 """
 
 
-def generate_strategy(icp: dict, campaign_name: str, config: dict) -> dict:
+def generate_strategy(icp: dict, campaign_name: str, config: dict, language: str = "English") -> dict:
     """
     Generate an outreach strategy for the given ICP.
     Returns parsed strategy dict.
@@ -65,6 +65,8 @@ ICP summary:
 - Pain points: {'; '.join(icp.get('pain_points', []))}
 - ICP rationale: {icp.get('icp_rationale', '')}
 - Estimated market: {icp.get('estimated_market_size', '')}
+
+Language: Write ALL strategy text in {language}. Every JSON field value must be written entirely in {language}. Never mix languages.
 
 Generate the outreach strategy.
 """

@@ -334,6 +334,23 @@
           <input type="text" id="geo_cities" name="geo_cities"
             placeholder="e.g. Berlin, Hamburg, Munich — leave blank for all cities">
         </div>
+
+        <div class="form-group">
+          <label for="language">Outreach language <span style="color:var(--red)">*</span></label>
+          <select id="language" name="language" onchange="onLanguageChange()">
+            <option value="English">English</option>
+            <option value="German">German</option>
+            <option value="French">French</option>
+            <option value="Dutch">Dutch</option>
+            <option value="Spanish">Spanish</option>
+            <option value="Italian">Italian</option>
+            <option value="Portuguese">Portuguese</option>
+            <option value="Other">Other</option>
+          </select>
+          <div style="font-size:0.78rem; color:var(--muted); margin-top:4px;">
+            Auto-detected from your country selection. Override if needed — all 4 emails and the strategy will be written in this language.
+          </div>
+        </div>
       </div><!-- /step-2 -->
 
 
@@ -556,6 +573,7 @@
           <div class="sum-row"><span class="sum-lbl">Campaign</span><span id="sum-name">—</span></div>
           <div class="sum-row"><span class="sum-lbl">Vertical</span><span id="sum-vertical">—</span></div>
           <div class="sum-row"><span class="sum-lbl">Geography</span><span id="sum-geo">—</span></div>
+          <div class="sum-row"><span class="sum-lbl">Language</span><span id="sum-language">—</span></div>
           <div class="sum-row"><span class="sum-lbl">Company size</span><span id="sum-size">—</span></div>
           <div class="sum-row"><span class="sum-lbl">Multi-location</span><span id="sum-multiloc">—</span></div>
           <div class="sum-row"><span class="sum-lbl">Buying signals</span><span id="sum-signals">—</span></div>
@@ -771,6 +789,37 @@ function addCustomTitle() {
   input.focus();
 }
 
+/* ─── Language auto-detection ─── */
+const COUNTRY_LANG = {
+  'Germany': 'German', 'Austria': 'German', 'Switzerland': 'German',
+  'France': 'French',
+  'Netherlands': 'Dutch',
+  'Spain': 'Spanish',
+  'Italy': 'Italian',
+};
+const LANG_PRIORITY = ['German', 'French', 'Dutch', 'Spanish', 'Italian', 'Portuguese'];
+let _langManualOverride = false;
+
+function onLanguageChange() {
+  _langManualOverride = true;
+}
+
+function autoDetectLanguage() {
+  if (_langManualOverride) return;
+  const selected = [...document.querySelectorAll('input[name="geo_countries"]:checked')]
+    .map(c => c.value);
+  if (!selected.length) return;
+  let detected = 'English';
+  for (const lang of LANG_PRIORITY) {
+    if (selected.some(c => COUNTRY_LANG[c] === lang)) { detected = lang; break; }
+  }
+  document.getElementById('language').value = detected;
+}
+
+document.addEventListener('change', function(e) {
+  if (e.target.name === 'geo_countries') autoDetectLanguage();
+});
+
 /* ─── Summary population (Step 6) ─── */
 function populateSummary() {
   document.getElementById('sum-name').textContent =
@@ -786,6 +835,9 @@ function populateSummary() {
   const cities = document.getElementById('geo_cities').value.trim();
   document.getElementById('sum-geo').textContent =
     countries.length ? countries.join(', ') + (cities ? ' (' + cities + ')' : '') : '—';
+
+  document.getElementById('sum-language').textContent =
+    document.getElementById('language').value || '—';
 
   const empMin = document.getElementById('employees_min').value;
   const empMax = document.getElementById('employees_max').value;

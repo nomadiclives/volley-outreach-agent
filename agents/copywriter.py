@@ -87,6 +87,16 @@ Rules:
 DELAY_DAYS = [0, 4, 10, 18]
 SYSTEMS = [EMAIL1_SYSTEM, EMAIL2_SYSTEM, EMAIL3_SYSTEM, EMAIL4_SYSTEM]
 
+UNSUBSCRIBE_FOOTERS = {
+    "English":    "Not relevant? Reply 'unsubscribe' and I'll remove you.",
+    "German":     "Nicht relevant? Antworten Sie mit 'Abmelden' und ich entferne Sie sofort.",
+    "French":     "Pas pertinent? Répondez 'Désabonner' et je vous retire immédiatement.",
+    "Dutch":      "Niet relevant? Antwoord 'Uitschrijven' en ik verwijder je direct.",
+    "Spanish":    "¿No es relevante? Responde 'Cancelar suscripción' y te eliminaré de inmediato.",
+    "Italian":    "Non pertinente? Rispondi 'Annulla iscrizione' e ti rimuovo subito.",
+    "Portuguese": "Não é relevante? Responda 'Cancelar inscrição' e eu te removerei imediatamente.",
+}
+
 
 def _check_spam(text: str) -> list[str]:
     """Return list of spam trigger words found in text (case-insensitive)."""
@@ -107,14 +117,19 @@ def _parse_email_json(raw: str, step: int) -> dict:
         raise ValueError(f"Email {step} returned non-JSON: {raw[:200]}")
 
 
-def _ensure_unsubscribe(body: str) -> str:
+def _ensure_unsubscribe(body: str, footer: str) -> str:
     """Append unsubscribe footer if not already present."""
-    if "unsubscribe" not in body.lower():
-        body += "\n\nNot relevant? Reply 'unsubscribe' and I'll remove you."
+    if "unsubscribe" not in body.lower() and "abmelden" not in body.lower() \
+            and "désabonner" not in body.lower() and "uitschrijven" not in body.lower() \
+            and "cancelar" not in body.lower() and "annulla" not in body.lower() \
+            and "cancelar inscrição" not in body.lower():
+        body += f"\n\n{footer}"
     return body
 
 
-def _generate_one_email(system: str, context: str, step: int, config: dict) -> dict:
+def _generate_one_email(
+    system: str, context: str, step: int, config: dict, footer: str
+) -> dict:
     """Generate one email with up to MAX_SPAM_ATTEMPTS retries on spam-trigger failure.
 
     Returns a dict with keys:
@@ -151,7 +166,7 @@ def _generate_one_email(system: str, context: str, step: int, config: dict) -> d
         if not triggers:
             if attempt > 1:
                 logger.info("Email %d passed spam check on attempt %d", step, attempt)
-            email["body"] = _ensure_unsubscribe(email.get("body", ""))
+            email["body"] = _ensure_unsubscribe(email.get("body", ""), footer)
             email["spam_warning"] = False
             email["spam_triggers"] = []
             return email
@@ -168,7 +183,7 @@ def _generate_one_email(system: str, context: str, step: int, config: dict) -> d
         "Email %d still contains spam triggers after %d attempts: %s — saving with spam_warning=True",
         step, MAX_SPAM_ATTEMPTS, last_triggers,
     )
-    last_email["body"] = _ensure_unsubscribe(last_email.get("body", ""))
+    last_email["body"] = _ensure_unsubscribe(last_email.get("body", ""), footer)
     last_email["spam_warning"] = True
     last_email["spam_triggers"] = last_triggers
     return last_email
@@ -179,6 +194,7 @@ def generate_sequence(
     strategy: dict,
     icp: dict,
     config: dict,
+    language: str = "English",
 ) -> list[dict]:
     """Generate 4-email sequence for a campaign.
 
@@ -187,6 +203,8 @@ def generate_sequence(
     is created — the operator must review them before the campaign can send.
     """
     from core.database import delete_sequences, insert_sequence_step, create_notification
+
+    footer = UNSUBSCRIBE_FOOTERS.get(language, UNSUBSCRIBE_FOOTERS["English"])
 
     context = f"""
 Campaign strategy:
@@ -202,6 +220,8 @@ ICP:
 - Verticals: {', '.join(icp.get('verticals', []))}
 - Target titles: {', '.join(icp.get('target_titles', []))}
 - Pain points: {'; '.join(icp.get('pain_points', []))}
+
+Language: Write ALL email content (subject, body, every sentence) entirely in {language}. Never mix languages. The unsubscribe footer MUST be exactly: "{footer}"
 """
 
     delete_sequences(campaign_id)
@@ -209,7 +229,7 @@ ICP:
 
     for i, (system, delay) in enumerate(zip(SYSTEMS, DELAY_DAYS), start=1):
         logger.info("Generating email %d for campaign %d...", i, campaign_id)
-        email = _generate_one_email(system, context, i, config)
+        email = _generate_one_email(system, context, i, config, footer=footer)
 
         spam_warning = 1 if email.get("spam_warning") else 0
         step = {
