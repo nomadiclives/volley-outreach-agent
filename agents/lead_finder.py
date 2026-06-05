@@ -60,6 +60,30 @@ def _discover_companies(
         seen_domains.add(domain)
         companies.append(c)
 
+    # ── Source 0: Industry Directory Scrapers (unlimited, zero credits) ───────
+    try:
+        from scrapers import get_scrapers_for_icp
+        from core.database import mark_directory_company_processed
+        for scraper in get_scrapers_for_icp(icp):
+            for company in scraper.run():
+                domain = (company.get("domain") or "").strip().lower()
+                # Level 3 dedup: skip if this domain is already in leads table
+                if domain and domain_exists_in_leads(domain):
+                    continue
+                _add({
+                    "company_name":   company.get("company_name", ""),
+                    "domain":         domain,
+                    "industry":       company.get("vertical", ""),
+                    "employee_count": "",
+                    "city":           "",
+                    "country":        company.get("country", ""),
+                    "source":         "directory_scraper",
+                    "_dir_company_id": company.get("id"),
+                })
+        logger.info("Phase 1 after directory scrapers: %d companies", len(companies))
+    except Exception as e:
+        logger.warning("Phase 1 directory scrapers failed: %s", e)
+
     # ── Source 1: Apollo ─────────────────────────────────────────────────────
     if budget.get("apollo", 0) > 0:
         try:
@@ -392,6 +416,14 @@ def find_leads(
         new_id = insert_lead(lead)
         if new_id:
             lead["id"] = new_id
+            # Mark the originating directory company as processed
+            dir_id = lead.pop("_dir_company_id", None)
+            if dir_id:
+                try:
+                    from core.database import mark_directory_company_processed
+                    mark_directory_company_processed(dir_id)
+                except Exception:
+                    pass
             try:
                 sync_lead(lead)
             except Exception as e:

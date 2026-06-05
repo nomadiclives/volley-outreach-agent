@@ -193,6 +193,47 @@ def resume(campaign: int):
 
 
 @cli.command()
+@click.option("--vertical", required=True, help="Vertical: solar | home_improvement | finance")
+@click.option("--geo", required=True, help="Geography: de | uk")
+@click.option("--dry-run", is_flag=True, help="Preview without storing to DB")
+def scrape(vertical: str, geo: str, dry_run: bool):
+    """Run a vertical directory scraper and store discovered companies."""
+    from core.database import init_db
+    init_db()
+
+    from scrapers import get_scrapers_for_vertical_geo, list_available
+    scrapers = get_scrapers_for_vertical_geo(vertical, geo)
+
+    if not scrapers:
+        available_str = ", ".join(
+            f"{e['vertical']}/{e['geo']}" for e in list_available()
+        )
+        console.print(f"[red]No scraper found for vertical='{vertical}' geo='{geo}'.[/red]")
+        console.print(f"[dim]Available combinations: {available_str}[/dim]")
+        sys.exit(1)
+
+    for scraper in scrapers:
+        cls_name = scraper.__class__.__name__
+        console.print(f"[bold]Running {cls_name}[/bold] (dry_run={dry_run})")
+        results = scraper.run(dry_run=dry_run)
+
+        prefix = "[DRY RUN] " if dry_run else ""
+        table = Table(title=f"{prefix}{cls_name}: {len(results)} companies found")
+        table.add_column("Company")
+        table.add_column("Domain")
+        table.add_column("Country")
+        for r in results[:25]:
+            table.add_row(
+                r.get("company_name", ""),
+                r.get("domain", ""),
+                r.get("country", ""),
+            )
+        console.print(table)
+        if len(results) > 25:
+            console.print(f"[dim]... and {len(results) - 25} more[/dim]")
+
+
+@cli.command()
 @click.option("--campaign", required=True, type=int, help="Campaign ID")
 def export(campaign: int):
     """Export campaign leads to CSV."""

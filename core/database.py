@@ -52,6 +52,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
     icp_description TEXT,
     vertical TEXT,
     geo TEXT,
+    language TEXT DEFAULT 'English',
     strategy_json TEXT,
     status TEXT DEFAULT 'draft',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -103,6 +104,18 @@ CREATE TABLE IF NOT EXISTS api_usage (
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS directory_companies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_name TEXT NOT NULL,
+    domain TEXT,
+    country TEXT,
+    vertical TEXT,
+    source_url TEXT,
+    source_file TEXT,
+    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed INTEGER DEFAULT 0
+);
+
 CREATE TABLE IF NOT EXISTS send_queue (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     lead_id INTEGER REFERENCES leads(id),
@@ -147,6 +160,25 @@ def init_db():
         # Additive migrations — safe to run on existing DBs (silently no-ops if column exists)
         try:
             conn.execute("ALTER TABLE sequences ADD COLUMN spam_warning INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        try:
+            conn.execute("ALTER TABLE campaigns ADD COLUMN language TEXT DEFAULT 'English'")
+        except Exception:
+            pass
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS directory_companies ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+                "company_name TEXT NOT NULL, "
+                "domain TEXT, "
+                "country TEXT, "
+                "vertical TEXT, "
+                "source_url TEXT, "
+                "source_file TEXT, "
+                "scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, "
+                "processed INTEGER DEFAULT 0)"
+            )
         except Exception:
             pass
     logger.info("Database initialised at %s", DB_PATH)
@@ -325,11 +357,19 @@ def leads_count() -> int:
 
 def insert_campaign(campaign: dict) -> int:
     sql = """
-        INSERT INTO campaigns (name, icp_description, vertical, geo, strategy_json, status)
-        VALUES (:name, :icp_description, :vertical, :geo, :strategy_json, :status)
+        INSERT INTO campaigns (name, icp_description, vertical, geo, language, strategy_json, status)
+        VALUES (:name, :icp_description, :vertical, :geo, :language, :strategy_json, :status)
     """
     with db() as conn:
-        cur = conn.execute(sql, campaign)
+        cur = conn.execute(sql, {
+            "name":            campaign.get("name"),
+            "icp_description": campaign.get("icp_description"),
+            "vertical":        campaign.get("vertical"),
+            "geo":             campaign.get("geo"),
+            "language":        campaign.get("language", "English"),
+            "strategy_json":   campaign.get("strategy_json"),
+            "status":          campaign.get("status", "draft"),
+        })
         return cur.lastrowid
 
 
@@ -343,6 +383,15 @@ def list_campaigns() -> list[dict]:
     with db() as conn:
         rows = conn.execute("SELECT * FROM campaigns ORDER BY created_at DESC").fetchall()
         return [dict(r) for r in rows]
+
+
+def delete_campaign(campaign_id: int):
+    """Hard-delete a campaign and all its sequences, outreach_log, and send_queue rows."""
+    with db() as conn:
+        conn.execute("DELETE FROM send_queue   WHERE campaign_id = ?", (campaign_id,))
+        conn.execute("DELETE FROM outreach_log WHERE campaign_id = ?", (campaign_id,))
+        conn.execute("DELETE FROM sequences    WHERE campaign_id = ?", (campaign_id,))
+        conn.execute("DELETE FROM campaigns    WHERE id = ?",          (campaign_id,))
 
 
 def update_campaign_status(campaign_id: int, status: str):
@@ -545,6 +594,94 @@ def log_api_usage(provider: str, model: str, purpose: str,
                VALUES (?, ?, ?, ?, ?, ?)""",
             (provider, model, purpose, input_tokens, output_tokens, cost_usd),
         )
+
+
+# ── Directory Companies ───────────────────────────────────────────────────────
+
+def bulk_insert_directory_companies(companies: list[dict]) -> int:
+    """Insert company dicts from a directory scraper. Skips duplicates by domain+source_file.
+
+    Returns the count of newly inserted rows.
+    """
+    inserted = 0
+    sql = """
+        INSERT OR IGNORE INTO directory_companies
+            (company_name, domain, country, vertical, source_url, source_file)
+        VALUES
+            (:company_name, :domain, :country, :vertical, :source_url, :source_file)
+    """
+    with db() as conn:
+        # Build a unique constraint guard manually since SQLite IGNORE needs
+        # a declared UNIQUE index. We deduplicate in Python instead.
+        existing = set(
+            row[0]
+            for row in conn.execute(
+                "SELECT domain || '|' || COALESCE(source_file,'') FROM directory_companies"
+            ).fetchall()
+        )
+        for c in companies:
+            key = (c.get("domain") or "") + "|" + (c.get("source_file") or "")
+            if key in existing:
+                continue
+            existing.add(key)
+            conn.execute(sql, {
+                "company_name": c.get("company_name", ""),
+                "domain":       c.get("domain"),
+                "country":      c.get("country"),
+                "vertical":     c.get("vertical"),
+                "source_url":   c.get("source_url"),
+                "source_file":  c.get("source_file"),
+            })
+            inserted += 1
+    return inserted
+
+
+def get_directory_companies(
+    vertical: str | None = None,
+    country: str | None = None,
+    unprocessed_only: bool = False,
+) -> list[dict]:
+    """Return directory companies with optional filters."""
+    clauses, params = [], []
+    if vertical:
+        clauses.append("vertical = ?")
+        params.append(vertical)
+    if country:
+        clauses.append("UPPER(country) = UPPER(?)")
+        params.append(country)
+    if unprocessed_only:
+        clauses.append("processed = 0")
+    where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
+    with db() as conn:
+        rows = conn.execute(
+            f"SELECT * FROM directory_companies {where} ORDER BY id",
+            params,
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def mark_directory_company_processed(company_id: int):
+    """Mark a directory company as processed (sent to Phase 2)."""
+    with db() as conn:
+        conn.execute(
+            "UPDATE directory_companies SET processed = 1 WHERE id = ?",
+            (company_id,),
+        )
+
+
+def get_directory_last_scraped(source_file: str) -> Optional[datetime]:
+    """Return the most recent scraped_at timestamp for a given source_file, or None."""
+    with db() as conn:
+        row = conn.execute(
+            "SELECT MAX(scraped_at) FROM directory_companies WHERE source_file = ?",
+            (source_file,),
+        ).fetchone()
+        if not row or not row[0]:
+            return None
+        try:
+            return datetime.fromisoformat(row[0])
+        except (ValueError, TypeError):
+            return None
 
 
 def get_monthly_api_credits(provider: str, period_start: str | None = None) -> int:

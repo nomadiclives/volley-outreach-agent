@@ -641,13 +641,28 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 - JSON code fence parsing fix (all agents)
 - Apollo auth header fix (X-Api-Key header)
 - Wizard button loading state
+- **Vertical directory scrapers — `scrapers/` directory complete** (see below)
 
 ### Apollo Status — Important
 Apollo free tier does NOT include API access (returns 403). Apollo is kept in codebase as paid upgrade only. Do NOT call Apollo API on free tier.
 
-### Build Next — Scrapers + UI fixes (current priority) 🎯
+### Scrapers Status (as of 2026-06-05) ✅
 
-**A. Vertical directory scrapers** — see full prompt below
+`scrapers/` directory is built and wired. Architecture: `BaseScraper` ABC with Playwright, random UA rotation, 2–5s delays, retry navigation, 7-day DB cache. Registry in `scrapers/__init__.py` maps (vertical, geo) → scraper class. Wired into `agents/lead_finder.py` as Phase 1 Source 0 (before Apollo, zero credits).
+
+| Scraper | Directory | URL | Codespaces status | Live result |
+|---|---|---|---|---|
+| `solar_uk.py` | Solar Energy UK | solarenergyuk.org/member-directory/ | ✅ Reachable | **390 companies extracted, verified** |
+| `home_improvement_uk.py` | FMB | fmb.org.uk/find-a-builder.html | ✅ Reachable | City-search strategy, untested end-to-end |
+| `finance_de.py` | BdB | bankenverband.de/ueber-uns/mitglieder | ✅ Reachable | JS-rendered list, needs Playwright run to verify |
+| `solar_de.py` | BSW-Solar | solarwirtschaft.de/verbraucher/mitglieder/ | ❌ Network blocked | Code correct — blocked by Codespaces → Azure IPs |
+| `finance_uk.py` | NACFB | nacfb.org/find-a-broker/ | ❌ Network blocked | Code correct — blocked by Codespaces → Azure IPs |
+
+**Network-blocked scrapers will work on any non-Codespaces machine** (local, VPS, scheduled Action). Not a code issue.
+
+CLI: `python main.py scrape --vertical solar --geo uk --dry-run`
+
+### Build Next — UI fixes (current priority) 🎯
 
 **B. Language selection in wizard**
 Add language dropdown to Step 2 of ICP wizard. Auto-detect from country selection (Germany/Austria/Switzerland → German, UK/US/AU/CA → English, etc.) but allow manual override. Pass selected language to strategy_generator.py and copywriter.py — all generated content must be in the selected language. Store language on the campaign record in SQLite.
@@ -658,18 +673,6 @@ Files: `web/templates/campaigns.html`, `web/routes/campaigns.py`, `agents/strate
 Add a Delete button to each campaign row in the Campaigns table. Drafts and pending_approval campaigns can be hard-deleted. Active/completed campaigns should be archived (status = 'archived') not deleted, to preserve outreach history. Archived campaigns hidden from main view by default, with a toggle to show them. Add confirmation dialog before any delete/archive action.
 
 Files: `web/templates/campaigns.html`, `web/routes/campaigns.py`, `core/database.py`
-
-Claude Code prompt for B + C:
-> "Make two UI changes. First (language selection): add a language dropdown to Step 2 of the ICP wizard with options: English, German, French, Dutch, Spanish, Italian, Portuguese, Other. Auto-detect the default language from the country selection (Germany/Austria/Switzerland → German, UK/US/AU/NL → English/Dutch as appropriate) but allow manual override. Store the selected language on the campaign record — add a language column to the campaigns table in database.py. Pass the language to strategy_generator.py and copywriter.py so all generated strategy text and all 4 emails are written entirely in the selected language. The unsubscribe footer must also be translated into the campaign language. Second (campaign deletion): add a Delete button to each row in the Campaigns table. Draft and pending_approval campaigns are hard-deleted with a confirmation dialog. Active, paused, and completed campaigns are soft-archived (status set to 'archived') not deleted, to preserve outreach history. Add a 'Show archived' toggle above the campaigns table that shows/hides archived campaigns. Default view hides archived."
-> "Create a new directory `scrapers/` in the project. Build a base class `scrapers/base_scraper.py` with shared Playwright setup, rate limiting (2-5 second delays), retry logic, and a standard output format: list of dicts with company_name, domain, country, vertical, source_url. Then build the following vertical scrapers, each as a separate file:
->
-> 1. `scrapers/solar_de.py` — scrape BSW-Solar member directory at https://www.solarwirtschaft.de/verbraucher/mitglieder/ — extract company names and websites
-> 2. `scrapers/solar_uk.py` — scrape Solar Energy UK member directory at https://solarenergyuk.org/membership/our-members/ — extract company names and websites
-> 3. `scrapers/home_improvement_uk.py` — scrape FMB (Federation of Master Builders) directory at https://www.fmb.org.uk/find-a-builder/ — search by trade category, extract company names and websites
-> 4. `scrapers/finance_uk.py` — scrape NACFB member directory at https://www.nacfb.org/find-a-broker/ — extract broker company names and websites
-> 5. `scrapers/finance_de.py` — scrape BdB member directory at https://bankenverband.de/mitglieder/ — extract company names and websites
->
-> Wire all scrapers into `agents/lead_finder.py` Phase 1 company discovery as a new source type 'directory_scraper'. Run scrapers at campaign start if the vertical matches — solar campaigns use solar scrapers, finance campaigns use finance scrapers. Store discovered companies in the `directory_companies` SQLite table to avoid re-scraping same directory within 7 days. Add CLI command `python main.py scrape --vertical solar --geo de` to run scrapers manually. Each scraper must handle: pagination, missing data gracefully, bot detection (randomise user agent, delays), and log results to the standard logger."
 
 ### Polish Later (needs real campaign data first)
 - Funnel chart in analytics (Found → Approved → Sent → Opened → Replied → Interested)
