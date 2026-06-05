@@ -25,13 +25,14 @@ Volley is a production-ready automated outreach agent for a pay-per-lead lead ge
 
 | Layer | Tool | Cost |
 |---|---|---|
-| Lead finding — B2B contacts | Apollo.io free tier (75 credits/month) | €0 |
+| Lead finding — primary B2B contacts | Snov.io free tier (50 credits/month) | €0 |
 | Lead finding — European contacts | Lusha free tier (40 credits/month) | €0 |
-| Lead finding — email finding | Snov.io free tier (50 credits/month) | €0 |
 | Lead finding — LinkedIn-based | GetProspect free tier (50 credits/month) | €0 |
 | Email resolution | Hunter.io free tier (50 searches/month) | €0 |
-| Local/SMB company discovery | Google Maps Places API | €0 |
-| Ad spend signal | Facebook Ad Library (public) + homepage pixel check | €0 |
+| Company discovery — local/SMB | Google Maps Places API | €0 |
+| Company discovery — ad-active companies | Facebook Ad Library (public) | €0 |
+| Company discovery — industry directories | Vertical scrapers (Playwright) | €0 |
+| Ad spend signal | Homepage pixel check + Facebook Transparency | €0 |
 | LinkedIn contact data | Playwright public scraper | €0 |
 | CRM | Google Sheets API | €0 |
 | AI | Claude API — claude-haiku-4-5 | ~€0.02/campaign |
@@ -39,17 +40,20 @@ Volley is a production-ready automated outreach agent for a pay-per-lead lead ge
 | Dashboard | Flask + Jinja2 + vanilla CSS | €0 |
 | State | SQLite | €0 |
 
-**Combined free credit bank: ~215 verified contacts/month across all sources**
+**Apollo.io note:** Apollo free tier does NOT include API access — web UI only. Apollo is kept in the codebase as a paid upgrade path (~$49/month for Basic with API access) but is NOT used as an active source. Do not call Apollo API on free tier — it returns 403.
 
-| Source | Credits | Strength |
-|---|---|---|
-| Apollo | 75/month | B2B contacts with titles + emails, broad database |
-| Lusha | 40/month | European contacts, strongest for DACH region |
-| Snov.io | 50/month | Email finder, good Apollo complement |
-| GetProspect | 50/month | LinkedIn-based contact extraction, good titles |
-| Hunter | 50/month | Domain-based email resolution, high accuracy |
-| Google Maps | Unlimited | Local/SMB company discovery |
-| Facebook Ad Library | Unlimited | Ad spend signal, active advertiser discovery |
+**Combined free contact bank: ~190 API credits/month + unlimited directory + unlimited Google Maps/Facebook**
+
+| Source | Type | Credits/month | Strength |
+|---|---|---|---|
+| Snov.io | API | 50 | Primary B2B contact finder, email resolution |
+| Lusha | API | 40 | Strongest for European/DACH contacts |
+| GetProspect | API | 50 | LinkedIn-based contact extraction |
+| Hunter | API | 50 | Domain-based email resolution, high accuracy |
+| Google Maps | Unlimited | ∞ | Company discovery by vertical + city |
+| Facebook Ad Library | Unlimited | ∞ | Active advertiser discovery |
+| Industry directories | Scraped | ∞ | Pre-qualified ICP companies, vertical-specific |
+| Apollo | Paid upgrade only | — | Activate when paying ~$49/month |
 
 **Philosophy: free or near-free everywhere. Never add a paid dependency without flagging it.**
 
@@ -67,7 +71,7 @@ volley/
 │
 ├── agents/
 │   ├── claude_client.py       # ALL Claude API calls go through here — cost tracking wrapper
-│   ├── icp_analyzer.py        # Structured wizard inputs → Apollo search params
+│   ├── icp_analyzer.py        # Structured wizard inputs → search params
 │   ├── lead_finder.py         # Two-phase architecture: Discovery → Contact Resolution
 │   ├── lead_enricher.py       # Email validation + weighted lead buyer scoring
 │   ├── buying_signal_checker.py # Homepage pixel check + Facebook Transparency check
@@ -76,17 +80,25 @@ volley/
 │   └── reply_analyzer.py      # Thread reconstruction + human vs automated classification
 │
 ├── integrations/
-│   ├── apollo.py              # Apollo.io API — 75 credit/month hard stop
+│   ├── apollo.py              # Apollo.io — PAID UPGRADE ONLY, 403 on free tier
 │   ├── hunter.py              # Hunter.io API — 50 search/month hard stop
 │   ├── lusha.py               # Lusha API — 40 credit/month hard stop (European contacts)
-│   ├── snov.py                # Snov.io API — 50 credit/month hard stop (email finder)
+│   ├── snov.py                # Snov.io API — 50 credit/month hard stop (PRIMARY source)
 │   ├── getprospect.py         # GetProspect API — 50 credit/month hard stop (LinkedIn-based)
 │   ├── google_sheets.py       # Bidirectional CRM sync — update in place, no duplicates
 │   ├── gmail_smtp.py          # Email sending — daily limit enforced
 │   ├── instantly.py           # Warmup only — free trial, switches off via config flag
 │   ├── linkedin_scraper.py    # Playwright, 2-5s delays, max 50/session
 │   ├── facebook_ads.py        # Facebook Ad Library + Page Transparency scraper
-│   └── google_maps.py         # Places API for local/SMB sourcing
+│   └── google_maps.py         # Places API for company discovery
+│
+├── scrapers/                  # Vertical-specific industry directory scrapers
+│   ├── base_scraper.py        # Shared Playwright setup, rate limiting, standard output format
+│   ├── solar_de.py            # BSW-Solar member directory (Germany)
+│   ├── solar_uk.py            # Solar Energy UK member directory
+│   ├── home_improvement_uk.py # FMB (Federation of Master Builders) directory
+│   ├── finance_uk.py          # NACFB broker directory (UK)
+│   └── finance_de.py          # BdB member directory (Germany)
 │
 ├── core/
 │   ├── database.py            # SQLite schema + all CRUD
@@ -165,11 +177,14 @@ Lead finding operates in two distinct phases. Never merge them.
 ### Phase 1 — Company Discovery
 Find companies that match the ICP. Sources used in order:
 
-1. **Apollo** — B2B companies with known contacts. Best quality, preserve credits.
-2. **Google Maps** — Local/SMB companies by vertical + city. Unlimited, use freely.
-3. **Facebook Ad Library** — Companies actively running ads in a vertical. Free, high buying signal value. Search by vertical keyword, extract company names and domains.
+1. **Industry Directory Scrapers** (`scrapers/`) — Pre-qualified ICP companies from vertical-specific directories. Unlimited, zero credits, highest targeting quality. Run first.
+2. **Google Maps** — Companies by vertical + city. Unlimited, use freely.
+3. **Facebook Ad Library** — Companies actively running ads in a vertical. Free, high buying signal value.
+4. **Apollo** — PAID UPGRADE ONLY. Do not call on free tier (returns 403). Activate when Apollo Basic paid plan is purchased.
 
 Output of Phase 1: a list of companies (name + domain) with no contact person yet.
+
+**ICP targeting note:** Primary targets are mid-to-large operators with national/regional scale, dedicated sales teams, and existing lead buying infrastructure (e.g. Enpal, Power HRG equivalents). NOT micro-SMBs or solo tradesmen. Verticals: solar, home improvement (roofing/HVAC/windows/siding), business loans/finance. These companies have LinkedIn presence, corporate email infrastructure, and appear in B2B contact databases.
 
 ### Phase 2 — Contact & Email Resolution
 For each company found in Phase 1, find the right person and their email. Sources tried in order, stopping as soon as a verified email is found:
@@ -183,7 +198,57 @@ For each company found in Phase 1, find the right person and their email. Source
 
 Stop as soon as a verified email is found. Never call multiple Phase 2 sources for the same company.
 
-### Pre-Search Deduplication (CRITICAL — prevents wasted credits)
+### Directory Scrapers (`scrapers/`)
+
+Vertical-specific Playwright scrapers that extract member company names and domains from industry trade association directories. These are pre-qualified ICP companies — industry members are exactly the kind of national/regional operators we want to reach.
+
+**Base class (`scrapers/base_scraper.py`):**
+- Shared Playwright setup with random user agent rotation
+- Rate limiting: 2–5 second random delays between requests
+- Retry logic: up to 3 attempts on failure
+- Standard output format: `[{company_name, domain, country, vertical, source_url}]`
+- Results cached in `directory_companies` SQLite table — never re-scrape same directory within 7 days
+
+**Active scrapers:**
+
+| File | Directory | Vertical | Geo | Est. Companies |
+|---|---|---|---|---|
+| `solar_de.py` | BSW-Solar members | Solar | Germany | ~300 |
+| `solar_uk.py` | Solar Energy UK members | Solar | UK | ~150 |
+| `home_improvement_uk.py` | FMB (Federation of Master Builders) | Home improvement | UK | ~8,000 |
+| `finance_uk.py` | NACFB broker directory | Business loans | UK | ~2,000 |
+| `finance_de.py` | BdB member directory | Finance | Germany | ~200 |
+
+**Scraper selection logic in `lead_finder.py`:**
+- Campaign vertical = "solar" + geo = "de" → run `solar_de.py`
+- Campaign vertical = "solar" + geo = "uk" → run `solar_uk.py`
+- Campaign vertical = "home improvement" + geo = "uk" → run `home_improvement_uk.py`
+- Campaign vertical = "finance/loans" + geo = "uk" → run `finance_uk.py`
+- Campaign vertical = "finance/loans" + geo = "de" → run `finance_de.py`
+- Unknown vertical → skip scrapers, fall through to Google Maps
+
+**CLI command:**
+```bash
+python main.py scrape --vertical solar --geo de           # Run scraper manually
+python main.py scrape --vertical solar --geo de --dry-run # Preview without storing
+```
+
+**New SQLite table:**
+```sql
+CREATE TABLE IF NOT EXISTS directory_companies (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    company_name TEXT NOT NULL,
+    domain TEXT,
+    country TEXT,
+    vertical TEXT,
+    source_url TEXT,
+    source_file TEXT,        -- which scraper found it
+    scraped_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed INTEGER DEFAULT 0  -- 1 = already sent to Phase 2
+);
+```
+
+---
 
 Before calling ANY source in either phase, check the local DB first:
 
@@ -248,8 +313,6 @@ If found: `buying_signals["running_ads"] = True`, `buying_signals["fb_ads_confir
 Store all results in `buying_signals` JSON field on the lead. These feed directly into `_score_ad_spend()` (20pts) and `_score_multi_location()` (15pts) in lead_enricher.py.
 
 ---
-
-## Email Sequence Spec
 
 **4 emails. Plain text only (no HTML — better deliverability).**
 
@@ -553,77 +616,60 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 
 ---
 
-## Completed Work
+## Build Status & Pending Tasks
 
-_All items below confirmed working in code as of 2026-05-31._
+### Completed ✅
+- Core DB schema + CRUD (including directory_companies table)
+- Reply handler — human reply → sequence stops immediately (10/10 tests pass)
+- Background scheduler — weekday-aware, resumes from SQLite
+- ICP wizard (6-step), strategy generator, copywriter (4 emails)
+- Apollo, Hunter, Lusha, Snov.io, GetProspect integrations
+- Two-phase lead finder + pre-search dedup (3 levels)
+- Credit manager — centralised gate for all sources
+- Buying signal checker — homepage pixel scan + Facebook Transparency
+- Facebook Ad Library integration
+- LinkedIn scraper — wired as Phase 2 final fallback
+- Manual credit override panel on wizard Step 6
+- Dashboard credit bank widget
+- Flask dashboard — all routes, all templates
+- All Phase 5 fixes (buying signals, Sheets dedup, Hunter confidence, spam filter, credit gates, weekend drift)
+- JSON code fence parsing fix (all agents)
+- Apollo auth header fix (X-Api-Key header)
+- Wizard button loading state
 
-### Core Infrastructure
-- ✅ SQLite schema, all CRUD, DB migrations
-- ✅ Background scheduler — weekday-aware, resumes from SQLite on Codespace restart
-- ✅ Human reply handler — polls Gmail every 15 min, sequence cancellation, 10/10 tests pass
-- ✅ Credit manager — single gate for all 5 paid sources; `check_and_spend()` in every integration
-- ✅ Per-provider billing period — `credit_reset_day` in config.yaml per source; Lusha/Snov/GetProspect use rolling window from signup day, Apollo/Hunter use calendar month
-- ✅ Pre-search dedup — 3 levels (email, company+contact, domain) before spending any credit
+### Apollo Status — Important
+Apollo free tier does NOT include API access (returns 403). Apollo is kept in codebase as paid upgrade only. Do NOT call Apollo API on free tier.
 
-### Lead Finding
-- ✅ Two-phase architecture — Phase 1 (company discovery) → Phase 2 (contact resolution)
-- ✅ Phase 1 sources: Apollo, Google Maps, Facebook Ad Library
-- ✅ Phase 2 sources: Apollo cache (free) → Lusha → Snov.io → GetProspect → Hunter → LinkedIn+Hunter
-- ✅ All integrations: Apollo, Hunter, Lusha, Snov.io, GetProspect, LinkedIn scraper, Google Maps, Facebook Ads
-- ✅ Credit-aware budget allocation — auto or manual override from wizard Step 6
+### Build Next — Scrapers (current priority) 🎯
+**Add vertical-specific industry directory scrapers** — this is the highest-leverage free addition to replace Apollo volume.
 
-### Buying Signals
-- ✅ Homepage pixel scan — Meta Pixel, Google Ads, GTM (including consent-wrapped `data-gtm-id`), TrustedForm, Jornaya, multi-location keywords
-- ✅ Facebook Page Transparency check — Playwright, gated at partial score > 40
-- ✅ Facebook Ad Library Phase 1 source — companies found here pre-populated with `running_ads: True`
+Claude Code prompt to run:
+> "Create a new directory `scrapers/` in the project. Build a base class `scrapers/base_scraper.py` with shared Playwright setup, rate limiting (2-5 second delays), retry logic, and a standard output format: list of dicts with company_name, domain, country, vertical, source_url. Then build the following vertical scrapers, each as a separate file:
+>
+> 1. `scrapers/solar_de.py` — scrape BSW-Solar member directory at https://www.solarwirtschaft.de/verbraucher/mitglieder/ — extract company names and websites
+> 2. `scrapers/solar_uk.py` — scrape Solar Energy UK member directory at https://solarenergyuk.org/membership/our-members/ — extract company names and websites
+> 3. `scrapers/home_improvement_uk.py` — scrape FMB (Federation of Master Builders) directory at https://www.fmb.org.uk/find-a-builder/ — search by trade category, extract company names and websites
+> 4. `scrapers/finance_uk.py` — scrape NACFB member directory at https://www.nacfb.org/find-a-broker/ — extract broker company names and websites
+> 5. `scrapers/finance_de.py` — scrape BdB member directory at https://bankenverband.de/mitglieder/ — extract company names and websites
+>
+> Wire all scrapers into `agents/lead_finder.py` Phase 1 company discovery as a new source type 'directory_scraper'. Run scrapers at campaign start if the vertical matches — solar campaigns use solar scrapers, finance campaigns use finance scrapers. Store discovered companies in the `directory_companies` SQLite table to avoid re-scraping same directory within 7 days. Add CLI command `python main.py scrape --vertical solar --geo de` to run scrapers manually. Each scraper must handle: pagination, missing data gracefully, bot detection (randomise user agent, delays), and log results to the standard logger."
 
-### AI & Copywriting
-- ✅ ICP analyzer — structured wizard inputs → Apollo search params
-- ✅ Strategy generator — Claude Haiku, cost-tracked
-- ✅ Copywriter — 4-email plain-text sequence, spam filter with 3-attempt regeneration
-- ✅ All Claude calls go through `agents/claude_client.py` cost wrapper
-- ✅ Markdown code-fence stripping — all 4 agents that parse Claude JSON (`strategy_generator`, `reply_analyzer`, `icp_analyzer`, `copywriter`) strip ` ```json ` fences before `json.loads()`
+### Polish Later (needs real campaign data first)
+- Funnel chart in analytics (Found → Approved → Sent → Opened → Replied → Interested)
+- Top subject lines by open rate
+- AI reply classifier for ambiguous replies
+- Warmup auto-switch logic (increment warmup_days_elapsed daily)
 
-### Robustness / Bug Fixes
-- ✅ Lusha domain validation — `_is_valid_domain()` guard skips empty, spaced, dot-less, or bad-TLD strings before spending a credit; removed unreliable company-name fallback path
-- ✅ Credit limit error message — shows actual next reset date per provider instead of hardcoded "Resets on the 1st"
-
-### Web Dashboard
-- ✅ 6-step ICP wizard with campaign summary and three action buttons
-- ✅ Wizard Step 6 credit budget panel — live balances, collapsible, auto/manual modes, override values passed to `find_leads()`
-- ✅ Dashboard credit bank widget — all 5 sources, used/remaining/limit, per-provider reset countdown, colour-coded bars
-- ✅ Campaigns, Leads, Sequences, Analytics routes
-- ✅ Per-lead score breakdown visible in `lead_detail.html`
-- ✅ Google Sheets sync — upsert on email key, no duplicates
-
-## Remaining Work
-
-### Polish / Nice-to-Have
-These don't block first campaign but improve operational visibility.
-
-**Funnel chart in analytics**
-`analytics.py` has sent/opened/replied totals but no Found or Approved stage counts. Query leads table for counts by status per campaign, pass as funnel data to `analytics.html` (Found → Approved → Sent → Opened → Replied → Interested).
-
-**Top subject lines by open rate**
-In `analytics.py`, join `outreach_log` → `sequences`, group by `subject`, rank by `opened / sent`. Pass `top_subjects` list to template.
-
-**AI reply classifier for ambiguous messages**
-`core/reply_handler.py` `classify_reply()` is rule-based only. For messages that pass OOO/bounce checks but remain ambiguous, call `classify_reply_with_ai()` in `agents/reply_analyzer.py`. Default to HUMAN if the AI call fails.
-
-**Warmup auto-switch logic**
-`core/scheduler.py` has no warmup handling. Add: increment `warmup_days_elapsed` in config daily, auto-advance `warmup_daily_limit` per the warmup schedule, auto-switch sending path when `warmup_active` flips to `false`.
-
-### Pending Setup (not blocking code work)
-- ~~Update `credit_reset_day` in `config.yaml` for Lusha, Snov.io, GetProspect~~ ✅ Done — all set to 29 (signed up 2026-05-29)
-- Buy outreach domain (~€10) — needed before any emails can send
-- Set up Cloudflare DNS (SPF, DKIM, DMARC, MX)
-- Sign up for Instantly free trial (email warmup)
-- Share Google Sheet with service account email from `credentials.json`
+### Pending Setup (blocking email sending)
+- Buy outreach domain (~€10) — **single biggest real-world blocker**
+- Set up Cloudflare DNS (SPF, DKIM, DMARC, MX, Vercel CNAME)
+- Sign up for Instantly free trial (warmup)
+- Share Google Sheet with service account email from credentials.json
 - Run `python scripts/dns_checker.py --domain yourdomain.com`
 
 ### Open Decisions
-- Final brand/domain name (ProspectCore GbR dissolution in progress)
-- Einstiegsgeld meeting — do NOT register Gewerbe before then
+- Final brand/domain name (ProspectCore GbR dissolution in progress — one partner confirmed, one pending)
+- Einstiegsgeld meeting pending — do NOT register Gewerbe before then
 
 ---
 
@@ -633,13 +679,15 @@ In `analytics.py`, join `outreach_log` → `sequences`, group by `subject`, rank
 python main.py                              # Start dashboard + scheduler
 python main.py find --icp "..." --limit 10 # Find leads
 python main.py find --dry-run              # Preview without using credits
+python main.py scrape --vertical solar --geo de           # Run directory scraper
+python main.py scrape --vertical solar --geo de --dry-run # Preview scraper output
 python main.py sync                         # Force Sheets sync
 python main.py status                       # Campaign status summary
 python main.py pause --campaign <id>
 python main.py resume --campaign <id>
 python main.py export --campaign <id>
 python scripts/setup.py                     # First-time setup
-python scripts/migrate_lead_scores.py       # Run DB migration
+python scripts/migrate_lead_scores.py       # Run DB migration (already done)
 python scripts/dns_checker.py --domain x    # Check DNS records
 ```
 
@@ -654,43 +702,3 @@ python scripts/dns_checker.py --domain x    # Check DNS records
 - `--dry-run` flag available on find and send commands
 - Human reply detection tested against: OOO, bounce, interested reply, not interested reply, one-word reply, forwarded email
 - Web UI readable without JavaScript for core views (progressive enhancement)
-
----
-
-## Current Status & Next Steps
-
-_Updated: 2026-06-01_
-
-### Where things stand
-
-The full lead-finding and outreach pipeline is built and code-complete. Every major component exists, is wired together, and has been verified to import cleanly. The system is ready to run its first real campaign as soon as the operational setup items below are complete.
-
-**What works right now (code):**
-- Run `python main.py` → Flask dashboard on localhost:5000 + background scheduler
-- 6-step ICP wizard → finds leads across 6 sources → scores them → generates 4-email sequence → approval flow → sends via Gmail SMTP
-- Credit tracking accurate per provider with correct billing windows
-- Human reply detection stops sequences immediately
-- Dashboard shows live credit bank, campaign status, and notifications
-
-**What's blocked on setup (not code):**
-1. **No outreach domain** — SPF/DKIM/DMARC can't be configured without a domain. Emails can't send. This is the single hardest blocker.
-2. **Einstiegsgeld meeting pending** — do not register Gewerbe before this is resolved.
-3. **`credit_reset_day` for Lusha/Snov/GetProspect** — set in `config.yaml` once signup dates are known. Currently defaults to 1 (safe but slightly inaccurate for rolling-window tools).
-
-### Immediate next steps (in order)
-
-1. **Resolve domain + Gewerbe decision** — everything else unblocks from here
-2. **Buy domain, configure Cloudflare DNS** — run `python scripts/dns_checker.py` to verify
-3. **Sign up for Instantly** (warmup) — set `instantly_api_key` and `instantly_campaign_id` in `config.yaml`
-4. **Share Google Sheet** with service account email from `credentials.json` — enables CRM sync
-5. **Run first campaign in dry-run mode** — `python main.py find --dry-run` to verify end-to-end without spending credits
-6. **Run first real campaign** — use the wizard, approve, watch the scheduler send
-
-### Remaining code work (low priority until setup is done)
-
-| Item | Effort | Value |
-|---|---|---|
-| Funnel chart in analytics | Small | Nice visibility |
-| Top subject lines by open rate | Small | Optimisation |
-| AI reply classifier for ambiguous replies | Medium | Reduces false negatives |
-| Warmup auto-switch logic | Medium | Removes manual config step |
