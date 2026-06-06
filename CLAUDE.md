@@ -632,7 +632,7 @@ Agent personalities from [agency-agents](https://github.com/msitarzewski/agency-
 
 ## Build Handover — Full Status Audit
 
-Last updated: 2026-06-05. Three columns: code is complete and verified | code is written but never run against a live system | not yet written.
+Last updated: 2026-06-06. Three columns: code is complete and verified | code is written but never run against a live system | not yet written.
 
 ---
 
@@ -665,8 +665,8 @@ Last updated: 2026-06-05. Three columns: code is complete and verified | code is
 
 **Scrapers**
 - Base scraper — Playwright lifecycle, 7-day result caching, user-agent rotation, retry, standard output format (`scrapers/base_scraper.py`)
-- All 5 vertical scrapers — pagination, lazy-load scroll, domain extraction, dedup, graceful fallback selectors: `solar_de.py` (BSW-Solar), `solar_uk.py` (Solar Energy UK), `home_improvement_uk.py` (FMB), `finance_uk.py` (NACFB), `finance_de.py` (BdB)
 - Scraper registry and ICP-to-scraper routing (`scrapers/__init__.py`)
+- NOTE: All 5 vertical scrapers were moved to Column 2 — BSW-Solar confirmed broken (login wall); others unverified
 
 **Web dashboard**
 - Flask factory + all 6 blueprints registered (`web/app.py`, `web/routes/api.py`)
@@ -701,11 +701,11 @@ These modules are code-complete but have never been exercised with real credenti
 | `integrations/facebook_ads.py` | Playwright Ad Library + Page Transparency — page structure can change, cookie-consent pop-up handling | Medium — consent overlay handling is brittle |
 | `integrations/google_maps.py` | Places API — key not yet filled in `config.yaml` | Low — well-documented API |
 | `integrations/google_sheets.py` | CRM sync — service account credentials.json not yet shared with the target spreadsheet | Low — auth works once credentials.json is placed and sheet is shared |
-| `scrapers/solar_de.py` | BSW-Solar actual page — CSS selectors are best-guess; real structure may differ | Medium — selector list has fallbacks but real-page structure unknown |
-| `scrapers/solar_uk.py` | Solar Energy UK actual page | Medium |
-| `scrapers/home_improvement_uk.py` | FMB builder finder — uses search interaction | Medium-High — dynamic search UI is harder to scrape reliably |
-| `scrapers/finance_uk.py` | NACFB broker finder — iterates specialist areas | Medium-High |
-| `scrapers/finance_de.py` | BdB member directory | Medium |
+| `scrapers/solar_de.py` | **CONFIRMED BROKEN** — BSW-Solar requires login; scraper hits redirect and saves nav links as fake companies. Cache polluted with 12 garbage records in `directory_companies` table — must be purged before next run. | Critical |
+| `scrapers/solar_uk.py` | Solar Energy UK actual page — accessibility unverified | High — assume login-wall risk until checked |
+| `scrapers/home_improvement_uk.py` | FMB builder finder — accessibility unverified | High |
+| `scrapers/finance_uk.py` | NACFB broker finder — accessibility unverified | High |
+| `scrapers/finance_de.py` | BdB member directory — accessibility unverified | High |
 | `core/reply_handler.py` + `core/scheduler.py` | Full email send → reply cycle — no live email flow has ever run | High — end-to-end only testable once domain + DNS + warmup are live |
 | `agents/copywriter.py` (non-English) | German/French/Dutch/Spanish/Italian/Portuguese output — code supports it, no real output reviewed | Medium — Claude follows language instruction well but footer translations untested |
 | `tracking/pixel.py` | Open event recording — needs a live hosted URL to embed in emails | Low once domain is live |
@@ -726,6 +726,10 @@ These modules are code-complete but have never been exercised with real credenti
 | A/B sequence split-test runner | `core/scheduler.py` + `web/routes/campaigns.py` | Strategy JSON includes A/B ideas but no infrastructure to send variant A to half the list |
 | Lead import from CSV | `web/routes/leads.py` | No manual upload path — leads only come from automated Phase 1/2 discovery |
 | Config.yaml validation on startup | `main.py` or `scripts/setup.py` | No schema check; missing keys cause runtime errors with unclear messages |
+| **Phase 1 company discovery redesign** | `agents/lead_finder.py` + `scrapers/` | All current Phase 1 sources are broken or missing API keys. Operator to define new approach — see Known Issues section above. Do not build until approach is agreed. |
+| Wizard Step 6 — separate submit CTA + background job + redirect | `web/routes/campaigns.py`, `web/templates/campaigns.html` | See Known Issues section — 504 timeout fix depends on this |
+| Dashboard credit bank widget — remove Apollo, reflect real source list | `web/routes/dashboard.py`, `web/templates/dashboard.html` | |
+| Full Apollo language audit in wizard | `web/routes/campaigns.py`, `web/templates/campaigns.html` | Remove all Apollo references from Step 6 UI |
 
 ---
 
@@ -766,6 +770,83 @@ python scripts/setup.py                     # First-time setup
 python scripts/migrate_lead_scores.py       # Run DB migration (already done)
 python scripts/dns_checker.py --domain x    # Check DNS records
 ```
+
+---
+
+## Known Issues & Open Backlog — Last reviewed 2026-06-06
+
+Issues found during first end-to-end test of the live dashboard. Prioritised by severity.
+
+---
+
+### CRITICAL — Phase 1 company discovery is completely broken
+
+**Root cause:** Every Phase 1 source is currently non-functional:
+
+| Source | Status | Reason |
+|---|---|---|
+| BSW-Solar scraper (`scrapers/solar_de.py`) | Broken | The member directory at `solarwirtschaft.de/verbraucher/mitglieder/` requires a login. The scraper hits the login redirect, falls back to "extract all external links", and saves nav links as fake companies ("Mehr", "Shop", `bee-ev.de`, etc.). The 7-day cache then locks in this garbage for the week. |
+| All other vertical scrapers | Untested | Assumed broken or inaccessible until verified — same login-wall risk applies |
+| Google Maps | Skipped | `maps_api_key` is blank in config.yaml |
+| Facebook Ads | Unreliable | Playwright hits consent/bot detection in headless Codespaces environment |
+| Apollo | Disabled | Paid upgrade only — intentional |
+
+**Consequence:** Phase 2 resolution sources (Lusha, Snov, Hunter, PDL, GetProspect) are working correctly but have nothing to work on. Every campaign run returns zero leads.
+
+**Phase 2 sources are resolvers, not discoverers** — they answer "who works at enpal.de?" not "which companies should I target?". They cannot substitute for a broken Phase 1.
+
+**What needs to happen:** Phase 1 requires a complete redesign. The operator should come back with a decision on the new approach before any code is written. Options to consider:
+- Replace BSW-Solar URL with a publicly accessible German solar directory (needs research)
+- Wire up Google Maps as the primary Phase 1 source (just needs the API key filled in — low effort, high impact)
+- Add a manual company seed list — operator pastes in known target domains, Phase 2 resolves contacts
+- PDL company search as a Phase 1 discovery source (PDL has company search endpoints, not just person lookup)
+- Rethink scraper targets: verify each directory is publicly accessible BEFORE building the scraper
+
+**Immediate quick win while redesign is decided:** Fill in `google.maps_api_key` in config.yaml. Google Maps is already coded and working — it just needs the key. This alone would give Phase 1 a real discovery source for any vertical + geo.
+
+---
+
+### Dashboard — Credit bank widget still shows Apollo as primary source
+
+The credit bank section on the main dashboard (`/`) lists Apollo, Hunter, Lusha, Snov, GetProspect as the lead sources. This was the original source list before the waterfall logic was updated. The widget does not reflect the current Phase 2 source order (Lusha → Snov → PDL → GetProspect → Hunter) and still presents Apollo as if it were active.
+
+**File to fix:** `web/routes/dashboard.py` and `web/templates/dashboard.html`
+
+---
+
+### ICP Wizard Step 6 — Apollo language and logic throughout
+
+Two separate problems in Step 6:
+
+1. **Lead Limits / Credit Budget panel** still references Apollo credits and presents Apollo as the primary lead source. All Apollo-specific language and credit logic should be replaced to reflect the actual active sources.
+
+2. **Action buttons** ("Find Leads", "Generate Strategy & Sequence Only", "Do Both") also reference Apollo credits in their helper text.
+
+**File to fix:** `web/routes/campaigns.py` and `web/templates/campaigns.html` — audit every reference to Apollo in the wizard flow.
+
+---
+
+### ICP Wizard Step 6 — UX: no clear submission CTA, no feedback after submit
+
+Current behaviour:
+- The three action buttons ("Find Leads", "Generate Strategy…", "Do Both") act as both the selection AND the submit trigger. This is confusing — the user doesn't know if clicking selects the option or fires the request.
+- After clicking, the screen hangs. A small "Working…" text appears inside the button that was clicked but is easy to miss.
+- There is no redirect, no progress indication, no ETA, no confirmation that the request was received.
+
+Required behaviour:
+- Add a separate "Let's Go" / "Submit" CTA button at the bottom of Step 6. The three action buttons should be selection controls only, not submit triggers.
+- On submit: immediately redirect to the Campaigns list page. Show a banner/notification: "Campaign created — [find leads / strategy / both] in progress. Estimated time: X minutes."
+- The 504 timeout the user saw is a Codespaces port forwarding timeout (30s) on long-running requests. The operation completes server-side but the browser gives up. Redirect on submit (before the work finishes) is the fix — the work runs in the background and the dashboard polls for completion.
+
+**File to fix:** `web/routes/campaigns.py`, `web/templates/campaigns.html`
+
+---
+
+### 504 timeout on long-running requests
+
+When "Find Leads" or "Do Both" is submitted, the browser tab shows a 504 after ~30 seconds. The Codespaces port forwarding proxy has a 30s idle timeout on HTTP responses. The lead-finding job can take 2–5 minutes. The fix is to return an immediate HTTP response (redirect or 202 Accepted) and run the job in the background, not in the request thread. The scheduler architecture already supports background jobs — lead finding should be queued the same way.
+
+**File to fix:** `web/routes/campaigns.py` — move `find_leads()` call off the request thread into a background task.
 
 ---
 
